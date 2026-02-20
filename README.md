@@ -1,4 +1,4 @@
-# Group4CMPT276
+# SmartCart: An Intelligent Meal Planning and Grocery Integration Platform
 
 SmartCart: An Intelligent Meal Planning and Grocery Integration Platform
 Application Name
@@ -12,7 +12,7 @@ Currently, users rely on separate tools to accomplish meal planning. Recipe plat
 None of these systems fully integrate meal planning, grocery aggregation, pantry awareness, and real-world product matching into a single unified workflow. SmartCart improves upon existing solutions by connecting intelligent meal planning directly to structured grocery list generation and Instacart-based cart handoff, creating a streamlined and customizable experience.
 
 Value and Impact
-SmartCart improves users’ lives by reducing time spent planning meals and preparing grocery lists. By automatically generating a weekly plan that respects dietary preferences and constraints, and by aggregating ingredients into a normalized and deduplicated grocery list, the application minimizes food waste and reduces overspending. The integration with Instacart enables users to seamlessly transition from planning to purchasing without manually re-entering grocery items.
+SmartCart improves users' lives by reducing time spent planning meals and preparing grocery lists. By automatically generating a weekly plan that respects dietary preferences and constraints, and by aggregating ingredients into a normalized and deduplicated grocery list, the application minimizes food waste and reduces overspending. The integration with Instacart enables users to seamlessly transition from planning to purchasing without manually re-entering grocery items.
 The project is both practical and educational. It addresses a real-world organizational problem while demonstrating advanced full-stack engineering concepts, including authentication systems, REST API integration, asynchronous workflows, database modeling, and structured validation of large language model outputs.
 
 Target Audience
@@ -43,3 +43,13 @@ The complexity and technical depth of these components ensure balanced and meani
 
 Conclusion
 SmartCart is a technically rigorous and practically valuable web application that addresses a clear and common organizational problem. By integrating intelligent meal planning, grocery aggregation, and external REST APIs into a cohesive system, the project improves upon fragmented existing solutions. The application satisfies all course requirements, including secure login functionality and external web API integration via HTTP calls, while demonstrating advanced full-stack software engineering practices.
+
+## Planned stack
+- Backend: Java + Spring Boot (REST)
+- Database: Postgres (Render)
+- Migrations: Flyway (planned)
+- External APIs: Google Gemini (generateContent), Instacart Developer Platform
+- Deployment: Render.com
+
+## Docs
+See `docs/` for placeholders: overview, architecture, API contract, DB, deployment, and security notes.
