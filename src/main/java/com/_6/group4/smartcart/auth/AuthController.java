@@ -1,13 +1,14 @@
 package com._6.group4.smartcart.auth;
 
-import com._6.group4.smartcart.models.User;
-import com._6.group4.smartcart.auth.AuthService;
 import jakarta.servlet.http.HttpSession;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+
+import java.util.Map;
 
 @Controller
 public class AuthController {
@@ -21,19 +22,29 @@ public class AuthController {
         this.authService = authService;
     }
 
-    @GetMapping("/dashboard")
-    public String dashboard(HttpSession session, Model model) {
+    /** Returns current session auth state for the main UI header. */
+    @GetMapping(value = "/api/auth/me", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Map<String, Object>> authMe(HttpSession session) {
         Object userId = session.getAttribute(SESSION_USER_ID);
-        if (userId == null) {
-            return "redirect:/login";
+        Object email = session.getAttribute(SESSION_USER_EMAIL);
+        boolean loggedIn = userId != null && email != null;
+        Map<String, Object> body = loggedIn
+            ? Map.of("loggedIn", true, "email", email.toString())
+            : Map.of("loggedIn", false);
+        return ResponseEntity.ok(body);
+    }
+
+    @GetMapping("/dashboard")
+    public String dashboard(HttpSession session) {
+        if (session.getAttribute(SESSION_USER_ID) == null) {
+            return "redirect:/login.html";
         }
-        model.addAttribute("userEmail", session.getAttribute(SESSION_USER_EMAIL));
-        return "design";
+        return "redirect:/";
     }
 
     @GetMapping("/register")
     public String showRegisterForm() {
-        return "register";
+        return "redirect:/register.html";
     }
 
     @PostMapping("/register")
@@ -41,41 +52,38 @@ public class AuthController {
             @RequestParam String email,
             @RequestParam String name,
             @RequestParam String password,
-            @RequestParam String confirmPassword,
-            Model model
+            @RequestParam String confirmPassword
     ) {
         try {
             authService.register(email, password, confirmPassword, name);
-            return "redirect:/login?registered";
+            return "redirect:/login.html?registered=1";
         } catch (IllegalArgumentException ex) {
-            model.addAttribute("error", ex.getMessage());
-            model.addAttribute("email", email);
-            model.addAttribute("name", name);
-            return "register";
+            String params = "?error=" + java.net.URLEncoder.encode(ex.getMessage(), java.nio.charset.StandardCharsets.UTF_8)
+                + "&email=" + java.net.URLEncoder.encode(email, java.nio.charset.StandardCharsets.UTF_8)
+                + "&name=" + java.net.URLEncoder.encode(name, java.nio.charset.StandardCharsets.UTF_8);
+            return "redirect:/register.html" + params;
         }
     }
 
     @GetMapping("/login")
     public String showLoginForm(
             @RequestParam(value = "registered", required = false) String registered,
-            @RequestParam(value = "logout", required = false) String loggedOut,
-            Model model
+            @RequestParam(value = "logout", required = false) String loggedOut
     ) {
         if (registered != null) {
-            model.addAttribute("message", "Registration successful. Please log in.");
+            return "redirect:/login.html?registered=1";
         }
         if (loggedOut != null) {
-            model.addAttribute("message", "You have been logged out.");
+            return "redirect:/login.html?logout=1";
         }
-        return "login";
+        return "redirect:/login.html";
     }
 
     @PostMapping("/login")
     public String handleLogin(
             @RequestParam String email,
             @RequestParam String password,
-            HttpSession session,
-            Model model
+            HttpSession session
     ) {
         try {
             User user = authService.login(email, password);
@@ -83,16 +91,16 @@ public class AuthController {
             session.setAttribute(SESSION_USER_EMAIL, user.getEmail());
             return "redirect:/dashboard";
         } catch (IllegalArgumentException ex) {
-            model.addAttribute("error", ex.getMessage());
-            model.addAttribute("email", email);
-            return "login";
+            String params = "?error=" + java.net.URLEncoder.encode(ex.getMessage(), java.nio.charset.StandardCharsets.UTF_8)
+                + "&email=" + java.net.URLEncoder.encode(email, java.nio.charset.StandardCharsets.UTF_8);
+            return "redirect:/login.html" + params;
         }
     }
 
     @GetMapping("/logout")
     public String logout(HttpSession session) {
         session.invalidate();
-        return "redirect:/login?logout";
+        return "redirect:/login.html?logout=1";
     }
 }
 

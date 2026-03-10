@@ -34,3 +34,13 @@ build/
 
 ### Environment ###
 .env
+.env.local
+
+### Cursor IDE ###
+.cursor/
+
+### Playwright MCP ###
+.playwright-mcp/
+
+### Screenshots (Playwright testing) ###
+*.png

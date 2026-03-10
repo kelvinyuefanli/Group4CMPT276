@@ -1,6 +1,5 @@
 package com._6.group4.smartcart.auth;
 
-import com._6.group4.smartcart.models.User;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -10,10 +9,14 @@ import java.util.Optional;
 public class AuthService {
 
     private final UserRepository userRepository;
+    private final UserPreferencesRepository preferencesRepository;
     private final PasswordHasher passwordHasher;
 
-    public AuthService(UserRepository userRepository, PasswordHasher passwordHasher) {
+    public AuthService(UserRepository userRepository,
+                       UserPreferencesRepository preferencesRepository,
+                       PasswordHasher passwordHasher) {
         this.userRepository = userRepository;
+        this.preferencesRepository = preferencesRepository;
         this.passwordHasher = passwordHasher;
     }
 
@@ -42,7 +45,9 @@ public class AuthService {
         String normalizedEmail = email.trim().toLowerCase();
         String passwordHash = passwordHasher.hash(password);
         User user = new User(normalizedEmail, passwordHash, name.trim());
-        return userRepository.save(user);
+        user = userRepository.save(user);
+        preferencesRepository.save(new UserPreferences(user));
+        return user;
     }
 
     public User login(String email, String password) {
@@ -57,7 +62,7 @@ public class AuthService {
         }
 
         User user = existing.get();
-        if (!passwordHasher.matches(password, user.getPasswordHash())) {
+        if (!passwordHasher.matches(password, user.getPassword())) {
             throw new IllegalArgumentException("Invalid email or password.");
         }
 

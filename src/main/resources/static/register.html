@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Register – SmartCart</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+    .auth-box { background: var(--card, #fff); padding: 2rem; border-radius: var(--radius, 8px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); width: 100%; max-width: 360px; }
+    .auth-box h1 { margin: 0 0 1.5rem; font-size: 1.5rem; color: var(--primary); }
+    .auth-box label { display: block; margin-top: 1rem; font-weight: 600; font-size: 0.875rem; color: var(--foreground); }
+    .auth-box input[type="email"], .auth-box input[type="password"], .auth-box input[type="text"] { width: 100%; padding: 0.5rem 0.75rem; margin-top: 0.25rem; border: 1px solid var(--border); border-radius: var(--radius); font-size: 1rem; box-sizing: border-box; }
+    .auth-box button[type="submit"] { margin-top: 1.25rem; width: 100%; padding: 0.625rem 1rem; border: none; border-radius: var(--radius); background: var(--primary); color: var(--primary-foreground, #fff); font-weight: 600; font-size: 0.875rem; cursor: pointer; }
+    .auth-box button[type="submit"]:hover { filter: brightness(0.95); }
+    .auth-msg { margin-top: 1rem; padding: 0.5rem 0; font-size: 0.875rem; }
+    .auth-msg.error { color: var(--destructive, #b91c1c); }
+    .auth-footer { margin-top: 1.25rem; text-align: center; font-size: 0.875rem; color: var(--muted-foreground); }
+    .auth-footer a { color: var(--primary); font-weight: 500; }
+    .auth-back { display: inline-block; margin-bottom: 1rem; font-size: 0.875rem; color: var(--primary); }
+  </style>
+</head>
+<body>
+  <div class="auth-page">
+    <div class="auth-box">
+      <a href="/" class="auth-back">← Back to SmartCart</a>
+      <h1>Create an account</h1>
+
+      <div id="auth-msg" class="auth-msg" hidden></div>
+
+      <form method="post" action="/register">
+        <label for="name">Name</label>
+        <input id="name" name="name" type="text" required placeholder="Your display name" autocomplete="name" />
+
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" required autocomplete="email" />
+
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" required autocomplete="new-password" />
+
+        <label for="confirmPassword">Confirm password</label>
+        <input id="confirmPassword" name="confirmPassword" type="password" required autocomplete="new-password" />
+
+        <button type="submit">Sign up</button>
+      </form>
+
+      <div class="auth-footer">
+        Already have an account? <a href="/login">Log in</a>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var msgEl = document.getElementById("auth-msg");
+
+      if (params.get("error")) {
+        msgEl.textContent = params.get("error");
+        msgEl.classList.add("error");
+        msgEl.hidden = false;
+      }
+      if (params.get("name")) {
+        document.getElementById("name").value = params.get("name");
+      }
+      if (params.get("email")) {
+        document.getElementById("email").value = params.get("email");
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartCart</title>
+  <link rel="icon" href="/favicon.ico" />
+  <meta name="description" content="SmartCart – AI-Powered Meal Planning & Grocery Integration" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div id="onboarding-overlay" class="onboarding-overlay" hidden></div>
+  <div class="app">
+
+    <!-- ============================================================ -->
+    <!-- Header                                                        -->
+    <!-- ============================================================ -->
+    <header class="app-header">
+      <div class="header-inner">
+        <div class="logo">Smart<span class="logo-accent">Cart</span></div>
+
+        <nav class="nav" id="main-nav">
+          <button class="nav-btn active" data-view="plan">Meal Plan</button>
+          <button class="nav-btn" data-view="grocery">Grocery List</button>
+          <button class="nav-btn" data-view="preferences">Preferences</button>
+        </nav>
+
+        <div id="auth-header" class="auth-header">
+          <span class="auth-loading">Loading…</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ============================================================ -->
+    <!-- Main Content                                                  -->
+    <!-- ============================================================ -->
+    <main class="main-content">
+
+      <!-- ---- Meal Plan View ---- -->
+      <section id="plan-view" class="plan-layout">
+        <div class="plan-sidebar">
+          <div class="mb-4">
+            <h1 style="font-size:1.25rem;">This Week</h1>
+            <p class="text-sm text-muted" id="plan-subtitle">
+              No meal plan yet &mdash; generate one from Preferences
+            </p>
+          </div>
+          <div id="meal-grid" class="meal-grid"></div>
+        </div>
+
+        <div class="plan-detail">
+          <div id="recipe-panel">
+            <div class="empty-state">
+              <div>
+                <p>Select a meal from the plan</p>
+                <p>Recipe details will appear here</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---- Grocery List View ---- -->
+      <section id="grocery-view" class="centered-view" hidden>
+        <div id="grocery-content">
+          <h2 style="font-size:1.5rem; font-weight:600;" class="mb-2">Grocery List</h2>
+          <p class="text-sm text-muted">Generate a meal plan first to see your grocery list.</p>
+        </div>
+      </section>
+
+      <!-- ---- Preferences View ---- -->
+      <section id="preferences-view" class="centered-view" hidden>
+        <div style="max-width:32rem;">
+          <div class="mb-6">
+            <h2 style="font-size:1.5rem; font-weight:600;">Preferences</h2>
+            <p class="text-sm text-muted mt-1">
+              Configure your dietary needs and household settings
+            </p>
+          </div>
+
+          <div>
+            <!-- Servings -->
+            <div class="pref-section">
+              <label class="section-label mb-2" style="display:block;">Servings per meal</label>
+              <div class="serving-btns" id="serving-btns"></div>
+            </div>
+
+            <!-- Dietary restrictions -->
+            <div class="pref-section">
+              <label class="section-label mb-2" style="display:block;">Dietary Restrictions</label>
+              <div class="chip-group" id="diet-chips"></div>
+            </div>
+
+            <!-- Cuisine preferences -->
+            <div class="pref-section">
+              <label class="section-label mb-2" style="display:block;">Preferred Cuisines</label>
+              <div class="chip-group" id="cuisine-chips"></div>
+            </div>
+
+            <!-- Generate -->
+            <div class="generate-section">
+              <button class="btn-primary" id="generate-btn">Generate New Plan</button>
+              <p class="hint">Creates a 7-day meal plan based on your preferences</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/onboarding.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

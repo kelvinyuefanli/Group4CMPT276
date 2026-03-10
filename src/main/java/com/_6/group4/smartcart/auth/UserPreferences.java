@@ -23,6 +23,21 @@ public class UserPreferences {
     @Column
     private String allergies;
 
+    @Column(name = "preferred_cuisines")
+    private String preferredCuisines;
+
+    @Column(name = "rotate_cuisines", nullable = false)
+    private boolean rotateCuisines = true;
+
+    @Column(name = "disliked_foods")
+    private String dislikedFoods;
+
+    @Column(name = "meal_schedule")
+    private String mealSchedule;
+
+    @Column(name = "onboarding_completed", nullable = false)
+    private boolean onboardingCompleted = false;
+
     protected UserPreferences() {}
 
     public UserPreferences(User user) {
@@ -38,4 +53,14 @@ public class UserPreferences {
     public void setDietaryRestrictions(String dietaryRestrictions) { this.dietaryRestrictions = dietaryRestrictions; }
     public String getAllergies() { return allergies; }
     public void setAllergies(String allergies) { this.allergies = allergies; }
+    public String getPreferredCuisines() { return preferredCuisines; }
+    public void setPreferredCuisines(String preferredCuisines) { this.preferredCuisines = preferredCuisines; }
+    public boolean isRotateCuisines() { return rotateCuisines; }
+    public void setRotateCuisines(boolean rotateCuisines) { this.rotateCuisines = rotateCuisines; }
+    public String getDislikedFoods() { return dislikedFoods; }
+    public void setDislikedFoods(String dislikedFoods) { this.dislikedFoods = dislikedFoods; }
+    public String getMealSchedule() { return mealSchedule; }
+    public void setMealSchedule(String mealSchedule) { this.mealSchedule = mealSchedule; }
+    public boolean isOnboardingCompleted() { return onboardingCompleted; }
+    public void setOnboardingCompleted(boolean onboardingCompleted) { this.onboardingCompleted = onboardingCompleted; }
 }
