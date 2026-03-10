@@ -10,8 +10,12 @@ public record GeminiRecipeDto(
     Integer cookTimeMinutes,
     Integer servings,
     String instructions,
-    List<IngredientDto> ingredients
+    List<?> ingredients  // Accept both objects and strings
 ) {
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record IngredientDto(String name, Double quantity, String unit) {}
+    public record IngredientDto(
+        String name, 
+        Object quantity,  // Accept Double, String, or any fraction format
+        String unit
+    ) {}
 }

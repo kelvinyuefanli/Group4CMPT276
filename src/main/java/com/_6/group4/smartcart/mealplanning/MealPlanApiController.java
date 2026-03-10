@@ -290,14 +290,65 @@ public class MealPlanApiController {
         recipe.setSource("gemini");
 
         if (dto.ingredients() != null) {
-            for (GeminiRecipeDto.IngredientDto ing : dto.ingredients()) {
-                RecipeIngredient ri = new RecipeIngredient(recipe, ing.name());
-                ri.setQuantity(ing.quantity());
-                ri.setUnit(ing.unit());
-                recipe.getIngredients().add(ri);
+            for (Object ing : dto.ingredients()) {
+                // Handle both string ingredients and object ingredients
+                if (ing instanceof String ingStr) {
+                    // Plain string ingredient (e.g., "Rolled Oats")
+                    RecipeIngredient ri = new RecipeIngredient(recipe, ingStr.trim());
+                    recipe.getIngredients().add(ri);
+                } else if (ing instanceof java.util.Map<?, ?> ingMap) {
+                    // Object ingredient with name, quantity, unit
+                    String name = ingMap.get("name") != null ? ingMap.get("name").toString() : "unknown";
+                    RecipeIngredient ri = new RecipeIngredient(recipe, name.trim());
+                    
+                    // Parse quantity (can be Double, String, or fraction)
+                    Object qtyObj = ingMap.get("quantity");
+                    if (qtyObj != null) {
+                        Double qty = parseQuantity(qtyObj.toString());
+                        if (qty != null) ri.setQuantity(qty);
+                    }
+                    
+                    // Get unit
+                    Object unitObj = ingMap.get("unit");
+                    if (unitObj != null) {
+                        ri.setUnit(unitObj.toString().trim());
+                    }
+                    
+                    recipe.getIngredients().add(ri);
+                }
             }
         }
         return recipeRepository.save(recipe);
+    }
+
+    private Double parseQuantity(String qtyStr) {
+        if (qtyStr == null || qtyStr.isBlank()) return null;
+        qtyStr = qtyStr.trim();
+        
+        try {
+            // Try parsing as plain number (e.g., "1.5", "2")
+            return Double.parseDouble(qtyStr);
+        } catch (NumberFormatException e1) {
+            try {
+                // Try parsing as fraction (e.g., "1/2")
+                if (qtyStr.contains("/")) {
+                    String[] parts = qtyStr.split("/");
+                    if (parts.length == 2) {
+                        double num = Double.parseDouble(parts[0].trim());
+                        double denom = Double.parseDouble(parts[1].trim());
+                        if (denom != 0) return num / denom;
+                    }
+                }
+                // Try extracting number from string like "1/2 tsp" (get the fraction part)
+                String[] tokens = qtyStr.split("\\s+");
+                if (tokens.length > 0) {
+                    return parseQuantity(tokens[0]);
+                }
+            } catch (Exception e2) {
+                // Could not parse; return null
+            }
+        }
+        return null;
     }
 
     private Map<String, Object> toMealPlanResponse(MealPlan plan) {
