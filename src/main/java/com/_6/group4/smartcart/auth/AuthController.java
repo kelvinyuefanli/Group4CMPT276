@@ -7,6 +7,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import com._6.group4.smartcart.auth.User;
 
 import java.util.Map;
 
@@ -15,6 +16,7 @@ public class AuthController {
 
     private static final String SESSION_USER_ID = "USER_ID";
     private static final String SESSION_USER_EMAIL = "USER_EMAIL";
+    private static final String SESSION_IS_ADMIN = "IS_ADMIN";
 
     private final AuthService authService;
 
@@ -89,6 +91,7 @@ public class AuthController {
             User user = authService.login(email, password);
             session.setAttribute(SESSION_USER_ID, user.getId());
             session.setAttribute(SESSION_USER_EMAIL, user.getEmail());
+            session.setAttribute(SESSION_IS_ADMIN, user.isAdmin());
             return "redirect:/dashboard";
         } catch (IllegalArgumentException ex) {
             String params = "?error=" + java.net.URLEncoder.encode(ex.getMessage(), java.nio.charset.StandardCharsets.UTF_8)

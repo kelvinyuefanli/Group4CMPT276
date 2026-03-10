@@ -20,6 +20,9 @@ public class User {
     @Column(nullable = false)
     private String name;
 
+    @Column(nullable = false)    
+    private boolean isAdmin = false;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -55,6 +58,8 @@ public class User {
     public void setPassword(String password) { this.password = password; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
+    public boolean isAdmin() { return isAdmin; }
+    public void setAdmin(boolean admin) { isAdmin = admin; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public UserPreferences getPreferences() { return preferences; }
