@@ -8,6 +8,7 @@ import com._6.group4.smartcart.grocery.PantryItem;
 import com._6.group4.smartcart.grocery.PantryItemRepository;
 import com._6.group4.smartcart.mealplanning.dto.GeminiMealPlanDto;
 import com._6.group4.smartcart.mealplanning.dto.GeminiRecipeDto;
+import com._6.group4.smartcart.mealplanning.dto.MealPlanGenerationRequest;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -71,14 +72,56 @@ public class MealPlanApiController {
 
     @PostMapping("/meal-plan/generate")
     @Transactional
-    public ResponseEntity<?> generateMealPlan(@RequestBody(required = false) Map<String, String> body, HttpSession session) {
+    public ResponseEntity<?> generateMealPlan(@RequestBody(required = false) MealPlanGenerationRequest body, HttpSession session) {
         Long userId = getCurrentUserId(session);
         if (userId == null) return UNAUTHORIZED;
-        String pantryIngredients = body != null ? body.getOrDefault("pantryIngredients", "") : "";
+        String pantryIngredients = body != null ? normalizeText(body.pantryIngredients()) : null;
 
-        UserPreferences prefs = preferencesRepository.findByUserId(userId).orElse(null);
+        UserPreferences prefs = preferencesRepository.findByUserId(userId)
+            .orElseGet(() -> {
+                User user = userRepository.findById(userId).orElseThrow();
+                return preferencesRepository.save(new UserPreferences(user));
+            });
 
-        if (pantryIngredients.isBlank()) {
+        Integer requestedServingSize = body != null ? body.servingSize() : null;
+        int effectiveServingSize = MealPlanGenerationSupport.normalizeServingSize(
+            requestedServingSize,
+            prefs.getServingSize()
+        );
+        String effectiveDietaryRestrictions = normalizedOverride(
+            body != null ? body.dietaryRestrictions() : null,
+            prefs.getDietaryRestrictions()
+        );
+        String effectiveAllergies = normalizedOverride(
+            body != null ? body.allergies() : null,
+            prefs.getAllergies()
+        );
+        String effectivePreferredCuisines = normalizedOverride(
+            body != null ? body.preferredCuisines() : null,
+            prefs.getPreferredCuisines()
+        );
+        String effectiveDislikedFoods = normalizedOverride(
+            body != null ? body.dislikedFoods() : null,
+            prefs.getDislikedFoods()
+        );
+        String effectiveMealSchedule = normalizeText(
+            body != null && body.mealSchedule() != null ? body.mealSchedule() : prefs.getMealSchedule()
+        );
+        boolean effectiveRotateCuisines =
+            body != null && body.rotateCuisines() != null ? body.rotateCuisines() : prefs.isRotateCuisines();
+
+        if (body != null) {
+            prefs.setServingSize(effectiveServingSize);
+            prefs.setDietaryRestrictions(effectiveDietaryRestrictions);
+            prefs.setAllergies(effectiveAllergies);
+            prefs.setPreferredCuisines(effectivePreferredCuisines);
+            prefs.setRotateCuisines(effectiveRotateCuisines);
+            prefs.setDislikedFoods(effectiveDislikedFoods);
+            prefs.setMealSchedule(effectiveMealSchedule);
+            preferencesRepository.save(prefs);
+        }
+
+        if (pantryIngredients == null || pantryIngredients.isBlank()) {
             List<PantryItem> pantryItems = pantryItemRepository.findAllByUserIdOrderByIngredientName(userId);
             if (!pantryItems.isEmpty()) {
                 StringBuilder sb = new StringBuilder();
@@ -92,25 +135,35 @@ public class MealPlanApiController {
 
         GeminiMealPlanDto dto = geminiService.generateMealPlan(
                 pantryIngredients,
-                prefs != null ? prefs.getDietaryRestrictions() : null,
-                prefs != null ? prefs.getAllergies() : null,
-                prefs != null && prefs.isRotateCuisines(),
-                prefs != null ? prefs.getPreferredCuisines() : null,
-                prefs != null ? prefs.getDislikedFoods() : null,
-                prefs != null ? prefs.getMealSchedule() : null
+                effectiveServingSize,
+                effectiveDietaryRestrictions,
+                effectiveAllergies,
+                effectiveRotateCuisines,
+                effectivePreferredCuisines,
+                effectiveDislikedFoods,
+                effectiveMealSchedule
         );
         if (dto == null || dto.meals() == null || dto.meals().isEmpty()) {
             return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Could not generate a meal plan. Check your GEMINI_API_KEY."));
+                    .body(Map.of("error", "Could not generate a complete meal plan for the selected preferences. Please try again."));
         }
 
         User user = userRepository.findById(userId).orElseThrow();
         LocalDate monday = LocalDate.now().with(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY));
         MealPlan plan = new MealPlan(user, monday);
+        Set<MealPlanGenerationSupport.MealSlot> expectedSlots =
+            MealPlanGenerationSupport.expectedSlots(effectiveMealSchedule);
+        MealPlanGenerationSupport.ExtractedMeals extracted =
+            MealPlanGenerationSupport.extractValidMeals(dto, expectedSlots, effectiveServingSize);
 
-        for (GeminiMealPlanDto.MealEntry entry : dto.meals()) {
+        if (!extracted.isComplete()) {
+            return ResponseEntity.badRequest()
+                .body(Map.of("error", "Generated plan was incomplete for the selected preferences. Please try again."));
+        }
+
+        for (GeminiMealPlanDto.MealEntry entry : MealPlanGenerationSupport.buildMealPlan(extracted.acceptedMeals()).meals()) {
             if (entry.recipe() == null) continue;
-            Recipe recipe = persistRecipe(entry.recipe());
+            Recipe recipe = persistRecipe(entry.recipe(), effectiveServingSize);
             try {
                 DayOfWeek day = DayOfWeek.valueOf(entry.dayOfWeek());
                 MealType meal = MealType.valueOf(entry.mealType());
@@ -281,74 +334,46 @@ public class MealPlanApiController {
 
     // ---- Helpers ----------------------------------------------------------
 
-    private Recipe persistRecipe(GeminiRecipeDto dto) {
+    private Recipe persistRecipe(GeminiRecipeDto dto, int defaultServings) {
         Recipe recipe = new Recipe(dto.title() != null ? dto.title() : "Untitled Recipe");
         recipe.setInstructions(dto.instructions());
         recipe.setCookTimeMinutes(dto.cookTimeMinutes());
-        recipe.setServings(dto.servings());
+        recipe.setServings(dto.servings() != null && dto.servings() > 0 ? dto.servings() : defaultServings);
         recipe.setCuisine(dto.cuisine());
         recipe.setSource("gemini");
 
-        if (dto.ingredients() != null) {
-            for (Object ing : dto.ingredients()) {
-                // Handle both string ingredients and object ingredients
-                if (ing instanceof String ingStr) {
-                    // Plain string ingredient (e.g., "Rolled Oats")
-                    RecipeIngredient ri = new RecipeIngredient(recipe, ingStr.trim());
-                    recipe.getIngredients().add(ri);
-                } else if (ing instanceof java.util.Map<?, ?> ingMap) {
-                    // Object ingredient with name, quantity, unit
-                    String name = ingMap.get("name") != null ? ingMap.get("name").toString() : "unknown";
-                    RecipeIngredient ri = new RecipeIngredient(recipe, name.trim());
-                    
-                    // Parse quantity (can be Double, String, or fraction)
-                    Object qtyObj = ingMap.get("quantity");
-                    if (qtyObj != null) {
-                        Double qty = parseQuantity(qtyObj.toString());
-                        if (qty != null) ri.setQuantity(qty);
-                    }
-                    
-                    // Get unit
-                    Object unitObj = ingMap.get("unit");
-                    if (unitObj != null) {
-                        ri.setUnit(unitObj.toString().trim());
-                    }
-                    
-                    recipe.getIngredients().add(ri);
-                }
+        for (GeminiRecipeDto.IngredientDto ingredient : dto.normalizedIngredients()) {
+            RecipeIngredient ri = new RecipeIngredient(recipe, ingredient.safeName());
+
+            Double quantity = ingredient.quantityAsDouble();
+            if (quantity != null) {
+                ri.setQuantity(quantity);
             }
+
+            String unit = ingredient.safeUnit();
+            if (unit != null) {
+                ri.setUnit(unit);
+            }
+
+            recipe.getIngredients().add(ri);
         }
         return recipeRepository.save(recipe);
     }
 
-    private Double parseQuantity(String qtyStr) {
-        if (qtyStr == null || qtyStr.isBlank()) return null;
-        qtyStr = qtyStr.trim();
-        
-        try {
-            // Try parsing as plain number (e.g., "1.5", "2")
-            return Double.parseDouble(qtyStr);
-        } catch (NumberFormatException e1) {
-            try {
-                // Try parsing as fraction (e.g., "1/2")
-                if (qtyStr.contains("/")) {
-                    String[] parts = qtyStr.split("/");
-                    if (parts.length == 2) {
-                        double num = Double.parseDouble(parts[0].trim());
-                        double denom = Double.parseDouble(parts[1].trim());
-                        if (denom != 0) return num / denom;
-                    }
-                }
-                // Try extracting number from string like "1/2 tsp" (get the fraction part)
-                String[] tokens = qtyStr.split("\\s+");
-                if (tokens.length > 0) {
-                    return parseQuantity(tokens[0]);
-                }
-            } catch (Exception e2) {
-                // Could not parse; return null
-            }
+    private String normalizedOverride(String requestedValue, String storedValue) {
+        String normalizedRequested = MealPlanGenerationSupport.normalizeSelectionList(requestedValue);
+        if (requestedValue != null) {
+            return normalizedRequested;
         }
-        return null;
+        return MealPlanGenerationSupport.normalizeSelectionList(storedValue);
+    }
+
+    private String normalizeText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isBlank() ? null : trimmed;
     }
 
     private Map<String, Object> toMealPlanResponse(MealPlan plan) {

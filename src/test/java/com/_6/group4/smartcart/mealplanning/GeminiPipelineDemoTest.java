@@ -189,13 +189,69 @@ class GeminiPipelineDemoTest {
 
     /** Same logic as GeminiService.parseJson -- strips markdown fences then parses. */
     private <T> T parseJson(String raw, Class<T> type) throws Exception {
+        String cleaned = extractJsonPayload(raw);
+        return mapper.readValue(cleaned, type);
+    }
+
+    private String extractJsonPayload(String raw) {
         String cleaned = raw.strip();
         if (cleaned.startsWith("```")) {
             cleaned = cleaned.replaceFirst("^```[a-zA-Z]*\\n?", "");
             cleaned = cleaned.replaceFirst("```\\s*$", "");
             cleaned = cleaned.strip();
         }
-        return mapper.readValue(cleaned, type);
+
+        int objectStart = cleaned.indexOf('{');
+        if (objectStart < 0) {
+            return cleaned;
+        }
+
+        int objectEnd = findJsonObjectEnd(cleaned, objectStart);
+        if (objectEnd < 0) {
+            return cleaned;
+        }
+
+        return cleaned.substring(objectStart, objectEnd + 1);
+    }
+
+    private int findJsonObjectEnd(String text, int startIndex) {
+        int depth = 0;
+        boolean inString = false;
+        boolean escaping = false;
+
+        for (int i = startIndex; i < text.length(); i++) {
+            char current = text.charAt(i);
+
+            if (escaping) {
+                escaping = false;
+                continue;
+            }
+
+            if (current == '\\' && inString) {
+                escaping = true;
+                continue;
+            }
+
+            if (current == '"') {
+                inString = !inString;
+                continue;
+            }
+
+            if (inString) {
+                continue;
+            }
+
+            if (current == '{') {
+                depth++;
+            } else if (current == '}') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+
+        return -1;
     }
 
     /** Same logic as MealPlanController.persistRecipe */
@@ -207,60 +263,22 @@ class GeminiPipelineDemoTest {
         recipe.setCuisine(dto.cuisine());
         recipe.setSource("gemini");
 
-        if (dto.ingredients() != null) {
-        for (Object ing : dto.ingredients()) {
-          if (ing instanceof String ingStr) {
-            RecipeIngredient ri = new RecipeIngredient(recipe, ingStr.trim());
-            recipe.getIngredients().add(ri);
-          } else if (ing instanceof java.util.Map<?, ?> ingMap) {
-            String name = ingMap.get("name") != null ? ingMap.get("name").toString() : "unknown";
-            RecipeIngredient ri = new RecipeIngredient(recipe, name.trim());
+        for (GeminiRecipeDto.IngredientDto ing : dto.normalizedIngredients()) {
+            RecipeIngredient ri = new RecipeIngredient(recipe, ing.safeName());
 
-            Object qtyObj = ingMap.get("quantity");
-            if (qtyObj != null) {
-              Double qty = parseQuantity(qtyObj.toString());
-              if (qty != null) {
-                ri.setQuantity(qty);
-              }
+            Double quantity = ing.quantityAsDouble();
+            if (quantity != null) {
+                ri.setQuantity(quantity);
             }
 
-            Object unitObj = ingMap.get("unit");
-            if (unitObj != null) {
-              ri.setUnit(unitObj.toString().trim());
+            String unit = ing.safeUnit();
+            if (unit != null) {
+                ri.setUnit(unit);
             }
 
             recipe.getIngredients().add(ri);
-          }
-            }
         }
         return recipeRepository.save(recipe);
-    }
-
-    private Double parseQuantity(String qtyStr) {
-      if (qtyStr == null || qtyStr.isBlank()) return null;
-      qtyStr = qtyStr.trim();
-
-      try {
-        return Double.parseDouble(qtyStr);
-      } catch (NumberFormatException e1) {
-        try {
-          if (qtyStr.contains("/")) {
-            String[] parts = qtyStr.split("/");
-            if (parts.length == 2) {
-              double num = Double.parseDouble(parts[0].trim());
-              double denom = Double.parseDouble(parts[1].trim());
-              if (denom != 0) return num / denom;
-            }
-          }
-          String[] tokens = qtyStr.split("\\s+");
-          if (tokens.length > 0) {
-            return parseQuantity(tokens[0]);
-          }
-        } catch (Exception e2) {
-          return null;
-        }
-      }
-      return null;
     }
 
     private void dumpRecipe(Recipe r) {
@@ -285,6 +303,89 @@ class GeminiPipelineDemoTest {
     private String truncate(String s, int max) {
         if (s == null) return "null";
         return s.length() <= max ? s : s.substring(0, max) + "...";
+    }
+
+    @Test
+    void normalizesMixedIngredientFormats() throws Exception {
+        String wrappedJson = """
+            Gemini sometimes adds commentary before the payload.
+            {
+              "title": "Overnight Oats",
+              "cuisine": null,
+              "cookTimeMinutes": 5,
+              "servings": 1,
+              "instructions": "Mix and chill overnight.",
+              "ingredients": [
+                "rolled oats",
+                { "name": "milk", "quantity": "1 1/2", "unit": "cups" },
+                { "name": "cinnamon", "quantity": "\\u00BD", "unit": "tsp" },
+                { "name": "chia seeds", "quantity": "about 2", "unit": "tbsp" },
+                { "name": "vanilla", "quantity": "a splash", "unit": null }
+              ]
+            }
+            Extra trailing commentary.
+            """;
+
+        GeminiRecipeDto dto = parseJson(wrappedJson, GeminiRecipeDto.class);
+
+        assertThat(dto.normalizedIngredients()).extracting(GeminiRecipeDto.IngredientDto::safeName)
+            .containsExactly("rolled oats", "milk", "cinnamon", "chia seeds", "vanilla");
+        assertThat(dto.normalizedIngredients().get(1).quantityAsDouble()).isEqualTo(1.5d);
+        assertThat(dto.normalizedIngredients().get(2).quantityAsDouble()).isEqualTo(0.5d);
+        assertThat(dto.normalizedIngredients().get(3).quantityAsDouble()).isEqualTo(2.0d);
+        assertThat(dto.normalizedIngredients().get(4).quantityAsDouble()).isNull();
+    }
+
+    @Test
+    void parsesArrayBackedGeminiFields() throws Exception {
+        String mealPlanJson = """
+            {
+              "meals": [
+                {
+                  "dayOfWeek": ["MONDAY"],
+                  "mealType": ["DINNER"],
+                  "recipe": {
+                    "title": ["Sheet Pan Tofu"],
+                    "cuisine": ["Korean"],
+                    "cookTimeMinutes": ["25"],
+                    "servings": { "value": "2" },
+                    "instructions": [
+                      "Press the tofu.",
+                      { "text": "Roast with vegetables until browned." }
+                    ],
+                    "ingredients": [
+                      {
+                        "name": ["firm tofu"],
+                        "quantity": ["1", "1/2"],
+                        "unit": ["blocks"]
+                      },
+                      {
+                        "name": "gochujang",
+                        "quantity": { "value": "2" },
+                        "unit": ["tbsp"]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+            """;
+
+        GeminiMealPlanDto plan = parseJson(mealPlanJson, GeminiMealPlanDto.class);
+        GeminiMealPlanDto.MealEntry entry = plan.meals().get(0);
+
+        assertThat(entry.dayOfWeek()).isEqualTo("MONDAY");
+        assertThat(entry.mealType()).isEqualTo("DINNER");
+        assertThat(entry.recipe().title()).isEqualTo("Sheet Pan Tofu");
+        assertThat(entry.recipe().cuisine()).isEqualTo("Korean");
+        assertThat(entry.recipe().cookTimeMinutes()).isEqualTo(25);
+        assertThat(entry.recipe().servings()).isEqualTo(2);
+        assertThat(entry.recipe().instructions()).contains("Press the tofu.");
+        assertThat(entry.recipe().instructions()).contains("Roast with vegetables until browned.");
+        assertThat(entry.recipe().normalizedIngredients().get(0).safeName()).isEqualTo("firm tofu");
+        assertThat(entry.recipe().normalizedIngredients().get(0).quantityAsDouble()).isEqualTo(1.5d);
+        assertThat(entry.recipe().normalizedIngredients().get(0).safeUnit()).isEqualTo("blocks");
+        assertThat(entry.recipe().normalizedIngredients().get(1).quantityAsDouble()).isEqualTo(2.0d);
     }
 
     // ======================== THE TEST ================================ //

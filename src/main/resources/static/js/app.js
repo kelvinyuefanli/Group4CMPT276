@@ -373,16 +373,16 @@ function renderGroceryList(items) {
    ================================================================= */
 function loadPreferences() {
   Api.fetchPreferences().then(function (prefs) {
+    state.selectedDiets = {};
+    state.selectedCuisines = {};
     if (prefs.servingSize) state.servingSize = prefs.servingSize;
     if (prefs.dietaryRestrictions) {
-      state.selectedDiets = {};
       prefs.dietaryRestrictions.split(",").forEach(function (d) {
         var trimmed = d.trim();
         if (trimmed) state.selectedDiets[trimmed] = true;
       });
     }
     if (prefs.preferredCuisines) {
-      state.selectedCuisines = {};
       prefs.preferredCuisines.split(",").forEach(function (c) {
         var trimmed = c.trim();
         if (trimmed) state.selectedCuisines[trimmed] = true;
@@ -480,6 +480,34 @@ function renderCuisineChips() {
   }
 }
 
+function commitCustomCuisineInput() {
+  var input = document.getElementById("custom-cuisine-input");
+  if (!input || !input.value.trim()) return false;
+
+  input.value.split(",").forEach(function (part) {
+    var value = part.trim();
+    if (value) state.selectedCuisines[value] = true;
+  });
+  input.value = "";
+  return true;
+}
+
+function buildCurrentPreferencePayload() {
+  if (commitCustomCuisineInput()) {
+    renderCuisineChips();
+  }
+
+  var dietStr = Object.keys(state.selectedDiets).join(", ") || null;
+  var cuisineStr = Object.keys(state.selectedCuisines).join(", ") || null;
+
+  return {
+    pantryIngredients: "",
+    servingSize: state.servingSize,
+    dietaryRestrictions: dietStr || "",
+    preferredCuisines: cuisineStr || ""
+  };
+}
+
 /* =================================================================
    Generate Meal Plan
    ================================================================= */
@@ -489,8 +517,9 @@ function handleGenerate() {
   var btn = $("#generate-btn");
   btn.textContent = "Generating\u2026";
   btn.disabled = true;
+  var payload = buildCurrentPreferencePayload();
 
-  Api.generateMealPlan("").then(function (plan) {
+  Api.generateMealPlan(payload).then(function (plan) {
     state.mealPlan = plan;
     state.selectedMeal = null;
     state.checkedItems = {};
@@ -507,7 +536,7 @@ function handleGenerate() {
     panel.innerHTML =
       '<div class="empty-state"><div>' +
       '<p style="color:var(--destructive,#c44);">Failed to generate meal plan</p>' +
-      "<p>Check your internet connection and GEMINI_API_KEY, then try again.</p>" +
+      "<p>We couldn't build a complete plan for the current preferences. Please try again in a moment.</p>" +
       "</div></div>";
   }).finally(function () {
     state.generating = false;
@@ -560,10 +589,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
       updateAuthHeader(auth);
 
-      if (Onboarding.resumeIfPending()) return;
+      if (Onboarding.resumeIfPending()) { revealApp(); return; }
 
       Onboarding.check().then(function (shown) {
-        if (!shown) initApp();
+        if (shown) { revealApp(); } else { initApp(); }
       }).catch(function () {
         initApp();
       });
@@ -573,7 +602,15 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 });
 
+function revealApp() {
+  var ls = document.getElementById("loading-screen");
+  if (ls) ls.style.display = "none";
+  var app = document.querySelector(".app");
+  if (app) app.style.display = "";
+}
+
 function initApp() {
+  revealApp();
   Api.fetchMealPlan().then(function (plan) {
     state.mealPlan = plan;
     updatePlanSubtitle();

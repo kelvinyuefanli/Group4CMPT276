@@ -53,3 +53,7 @@ SmartCart is a technically rigorous and practically valuable web application tha
 
 ## Docs
 See `docs/` for placeholders: overview, architecture, API contract, DB, deployment, and security notes.
+
+## Repository Layout
+- The active SmartCart application is the Spring Boot project rooted here, using `pom.xml` and `src/`.
+- `archive/smartcart-web-legacy/` contains an older standalone Gemini prototype that was kept only for reference.
