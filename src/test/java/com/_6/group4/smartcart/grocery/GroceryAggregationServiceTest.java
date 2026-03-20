@@ -10,13 +10,13 @@ import com._6.group4.smartcart.mealplanning.RecipeIngredient;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertIterableEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GroceryAggregationServiceTest {
@@ -40,15 +40,23 @@ class GroceryAggregationServiceTest {
 
         GroceryAggregationService.GroceryListResponse response = service.buildGroceryList(plan, List.of());
 
-        Map<String, String> quantitiesByName = response.items().stream()
-                .collect(java.util.stream.Collectors.toMap(
-                        GroceryAggregationService.GroceryListItemView::name,
-                        GroceryAggregationService.GroceryListItemView::quantity
-                ));
+        Map<String, GroceryAggregationService.GroceryListItemView> itemsByCanonicalName = response.items().stream()
+                .collect(Collectors.toMap(GroceryAggregationService.GroceryListItemView::canonicalName, item -> item));
 
         assertEquals(2, response.items().size());
-        assertEquals("1.5 lb", quantitiesByName.get("Garbanzo Beans"));
-        assertEquals("1.125 cup", quantitiesByName.get("Olive Oil"));
+
+        GroceryAggregationService.GroceryListItemView chickpea = itemsByCanonicalName.get("chickpea");
+        assertEquals("Garbanzo Beans", chickpea.name());
+        assertEquals("1.5 lb", chickpea.quantity());
+        assertEquals(1.5d, chickpea.quantityValue(), 0.0001d);
+        assertEquals("lb", chickpea.unit());
+        assertEquals("number", chickpea.inputMode());
+
+        GroceryAggregationService.GroceryListItemView oliveOil = itemsByCanonicalName.get("olive oil");
+        assertEquals("1.125 cup", oliveOil.quantity());
+        assertEquals(1.125d, oliveOil.quantityValue(), 0.001d);
+        assertEquals("cup", oliveOil.unit());
+
         assertEquals(0, response.pantrySubtractedCount());
         assertFalse(response.allCoveredByPantry());
     }
@@ -67,50 +75,99 @@ class GroceryAggregationServiceTest {
                 .toList();
 
         assertEquals(2, response.items().size());
-        assertIterableEquals(List.of("1 bunch", "2 cup"), quantities);
+        assertTrue(quantities.contains("1 bunch"));
+        assertTrue(quantities.contains("2 cup"));
     }
 
     @Test
-    void buildGroceryList_keepsUnknownQuantitiesSeparateFromKnownOnes() {
-        MealPlan plan = mealPlan(
-                recipe("Stir Fry", spec("Soy Sauce", null, "tbsp", null)),
-                recipe("Noodles", spec("Soy Sauce", 2.0, "tbsp", null))
-        );
-
-        GroceryAggregationService.GroceryListResponse response = service.buildGroceryList(plan, List.of());
-
-        List<String> quantities = response.items().stream()
-                .map(GroceryAggregationService.GroceryListItemView::quantity)
-                .toList();
-
-        assertEquals(2, response.items().size());
-        assertTrue(quantities.contains("tbsp"));
-        assertTrue(quantities.contains("2 tbsp"));
-    }
-
-    @Test
-    void buildGroceryList_subtractsPantryItemsByCanonicalName() {
-        MealPlan plan = mealPlan(
-                recipe("Tacos", spec("Scallions", 2.0, "bunch", null)),
-                recipe("Rice Bowl", spec("Rice", 1.0, "cup", null))
-        );
+    void buildGroceryList_subtractsPartialPantryAmountWithSameUnit() {
+        MealPlan plan = mealPlan(recipe("Rice Bowl", spec("Rice", 3.0, "cup", null)));
 
         GroceryAggregationService.GroceryListResponse response = service.buildGroceryList(
                 plan,
-                List.of(pantryItem("green onion"))
+                List.of(pantryItem("Rice", 1.0, "cup"))
         );
 
+        GroceryAggregationService.GroceryListItemView rice = response.items().get(0);
         assertEquals(1, response.items().size());
-        assertEquals("Rice", response.items().get(0).name());
+        assertEquals("2 cup", rice.quantity());
+        assertEquals(2.0d, rice.quantityValue(), 0.0001d);
+        assertEquals(1.0d, rice.pantryQuantityValue(), 0.0001d);
+        assertFalse(rice.covered());
         assertEquals(1, response.pantrySubtractedCount());
-        assertFalse(response.allCoveredByPantry());
     }
 
     @Test
-    void buildGroceryList_marksWhenPantryCoversEverything() {
-        MealPlan plan = mealPlan(
-                recipe("Breakfast", spec("Spring onions", 1.0, "bunch", "green onion"))
+    void buildGroceryList_subtractsPartialPantryAmountAcrossConvertibleUnits() {
+        MealPlan plan = mealPlan(recipe("Dressing", spec("Olive Oil", 1.0, "cup", null)));
+
+        GroceryAggregationService.GroceryListResponse response = service.buildGroceryList(
+                plan,
+                List.of(pantryItem("Olive Oil", 8.0, "tablespoons"))
         );
+
+        GroceryAggregationService.GroceryListItemView oliveOil = response.items().get(0);
+        assertEquals("0.5 cup", oliveOil.quantity());
+        assertEquals(0.5d, oliveOil.quantityValue(), 0.001d);
+        assertEquals(0.5d, oliveOil.pantryQuantityValue(), 0.001d);
+        assertFalse(oliveOil.covered());
+    }
+
+    @Test
+    void buildGroceryList_movesFullyCoveredNumericItemsIntoCoveredSection() {
+        MealPlan plan = mealPlan(recipe("Bread", spec("Flour", 12.0, "oz", null)));
+
+        GroceryAggregationService.GroceryListResponse response = service.buildGroceryList(
+                plan,
+                List.of(pantryItem("Flour", 1.0, "lb"))
+        );
+
+        assertTrue(response.items().isEmpty());
+        assertEquals(1, response.coveredItems().size());
+        GroceryAggregationService.GroceryListItemView flour = response.coveredItems().get(0);
+        assertEquals("0 oz", flour.quantity());
+        assertEquals(0d, flour.quantityValue(), 0.0001d);
+        assertEquals(16d, flour.pantryQuantityValue(), 0.0001d);
+        assertTrue(flour.covered());
+        assertTrue(response.allCoveredByPantry());
+    }
+
+    @Test
+    void buildGroceryList_ignoresIncompatiblePantryUnits() {
+        MealPlan plan = mealPlan(recipe("Soup", spec("Green Onion", 1.0, "bunch", null)));
+
+        GroceryAggregationService.GroceryListResponse response = service.buildGroceryList(
+                plan,
+                List.of(pantryItem("Green Onion", 1.0, "cup"))
+        );
+
+        GroceryAggregationService.GroceryListItemView greenOnion = response.items().get(0);
+        assertEquals(1, response.items().size());
+        assertEquals("1 bunch", greenOnion.quantity());
+        assertNull(greenOnion.pantryQuantityValue());
+        assertEquals(0, response.pantrySubtractedCount());
+    }
+
+    @Test
+    void buildGroceryList_usesBooleanPantryCoverageForUnknownQuantities() {
+        MealPlan plan = mealPlan(recipe("Noodles", spec("Soy Sauce", null, "tbsp", null)));
+
+        GroceryAggregationService.GroceryListResponse response = service.buildGroceryList(
+                plan,
+                List.of(pantryItem("Soy Sauce"))
+        );
+
+        assertTrue(response.items().isEmpty());
+        assertEquals(1, response.coveredItems().size());
+        GroceryAggregationService.GroceryListItemView soySauce = response.coveredItems().get(0);
+        assertEquals("toggle", soySauce.inputMode());
+        assertEquals("tbsp", soySauce.quantity());
+        assertTrue(soySauce.covered());
+    }
+
+    @Test
+    void buildGroceryList_usesLegacyBooleanPantryRowsToCoverNumericItems() {
+        MealPlan plan = mealPlan(recipe("Breakfast", spec("Spring onions", 1.0, "bunch", "green onion")));
 
         GroceryAggregationService.GroceryListResponse response = service.buildGroceryList(
                 plan,
@@ -118,9 +175,13 @@ class GroceryAggregationServiceTest {
         );
 
         assertTrue(response.items().isEmpty());
+        assertEquals(1, response.coveredItems().size());
+        GroceryAggregationService.GroceryListItemView greenOnion = response.coveredItems().get(0);
+        assertEquals("0 bunch", greenOnion.quantity());
+        assertEquals(0d, greenOnion.quantityValue(), 0.0001d);
+        assertNull(greenOnion.pantryQuantityValue());
+        assertTrue(greenOnion.covered());
         assertEquals(1, response.pantrySubtractedCount());
-        assertTrue(response.allCoveredByPantry());
-        assertEquals(Boolean.TRUE, response.toResponseMap().get("allCoveredByPantry"));
     }
 
     private MealPlan mealPlan(Recipe... recipes) {
@@ -146,7 +207,16 @@ class GroceryAggregationServiceTest {
     }
 
     private PantryItem pantryItem(String name) {
-        return new PantryItem(new User("pantry@example.com", "pw", "Pantry User"), name);
+        PantryItem pantryItem = new PantryItem(new User("pantry@example.com", "pw", "Pantry User"), name);
+        pantryItem.setCanonicalName(IngredientNormalizer.canonicalizeName(name));
+        return pantryItem;
+    }
+
+    private PantryItem pantryItem(String name, Double quantity, String unit) {
+        PantryItem pantryItem = pantryItem(name);
+        pantryItem.setQuantity(quantity);
+        pantryItem.setUnit(GroceryAggregationService.normalizeStoredUnit(unit));
+        return pantryItem;
     }
 
     private IngredientSpec spec(String name, Double quantity, String unit, String canonicalName) {

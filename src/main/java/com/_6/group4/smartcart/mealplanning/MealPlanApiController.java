@@ -7,6 +7,7 @@ import com._6.group4.smartcart.auth.UserRepository;
 import com._6.group4.smartcart.grocery.GroceryAggregationService;
 import com._6.group4.smartcart.grocery.IngredientNormalizer;
 import com._6.group4.smartcart.grocery.PantryItem;
+import com._6.group4.smartcart.grocery.PantryItemUpdateRequest;
 import com._6.group4.smartcart.grocery.PantryItemRepository;
 import com._6.group4.smartcart.mealplanning.dto.GeminiMealPlanDto;
 import com._6.group4.smartcart.mealplanning.dto.GeminiRecipeDto;
@@ -284,6 +285,7 @@ public class MealPlanApiController {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", pi.getId());
             m.put("name", pi.getIngredientName());
+            m.put("canonicalName", pi.getCanonicalName());
             m.put("quantity", pi.getQuantity());
             m.put("unit", pi.getUnit());
             result.add(m);
@@ -305,10 +307,67 @@ public class MealPlanApiController {
         List<PantryItem> saved = new ArrayList<>();
         for (String name : itemNames) {
             if (name != null && !name.isBlank()) {
-                saved.add(pantryItemRepository.save(new PantryItem(user, name.trim())));
+                PantryItem pantryItem = new PantryItem(user, name.trim());
+                pantryItem.setCanonicalName(IngredientNormalizer.canonicalizeName(name));
+                saved.add(pantryItemRepository.save(pantryItem));
             }
         }
         return ResponseEntity.ok(Map.of("count", saved.size()));
+    }
+
+    @PutMapping("/pantry/item")
+    @Transactional
+    public ResponseEntity<?> updatePantryItem(@RequestBody PantryItemUpdateRequest body, HttpSession session) {
+        Long userId = getCurrentUserId(session);
+        if (userId == null) return UNAUTHORIZED;
+
+        String displayName = normalizeText(body.name());
+        String requestedCanonicalName = normalizeText(body.canonicalName());
+        String canonicalName = IngredientNormalizer.canonicalizeName(
+                requestedCanonicalName != null ? requestedCanonicalName : displayName
+        );
+
+        if (canonicalName.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "A pantry item name is required."));
+        }
+
+        boolean covered = Boolean.TRUE.equals(body.covered());
+        String normalizedUnit = GroceryAggregationService.normalizeStoredUnit(body.unit());
+        Double requestedQuantity = body.quantity();
+        boolean numericRequest = requestedQuantity != null || normalizedUnit != null;
+
+        if (!covered) {
+            removePantryEntry(userId, canonicalName, normalizedUnit, numericRequest);
+            return ResponseEntity.ok(Map.of("status", "removed"));
+        }
+
+        User user = userRepository.findById(userId).orElseThrow();
+        if (!numericRequest) {
+            pantryItemRepository.deleteAllByUserIdAndCanonicalName(userId, canonicalName);
+            PantryItem pantryItem = new PantryItem(user, displayName != null ? displayName : canonicalName);
+            pantryItem.setCanonicalName(canonicalName);
+            pantryItem.setQuantity(null);
+            pantryItem.setUnit(null);
+            pantryItemRepository.save(pantryItem);
+            return ResponseEntity.ok(Map.of("status", "saved"));
+        }
+
+        if (requestedQuantity == null || requestedQuantity <= 0d) {
+            removePantryEntry(userId, canonicalName, normalizedUnit, true);
+            return ResponseEntity.ok(Map.of("status", "removed"));
+        }
+
+        pantryItemRepository.deleteAllByUserIdAndCanonicalNameAndQuantityIsNull(userId, canonicalName);
+
+        PantryItem pantryItem = findNumericPantryItem(userId, canonicalName, normalizedUnit)
+                .orElseGet(() -> new PantryItem(user, displayName != null ? displayName : canonicalName));
+        pantryItem.setUser(user);
+        pantryItem.setIngredientName(displayName != null ? displayName : canonicalName);
+        pantryItem.setCanonicalName(canonicalName);
+        pantryItem.setQuantity(requestedQuantity);
+        pantryItem.setUnit(normalizedUnit);
+        pantryItemRepository.save(pantryItem);
+        return ResponseEntity.ok(Map.of("status", "saved"));
     }
 
     @DeleteMapping("/pantry/{id}")
@@ -368,6 +427,25 @@ public class MealPlanApiController {
         }
         String trimmed = value.trim();
         return trimmed.isBlank() ? null : trimmed;
+    }
+
+    private Optional<PantryItem> findNumericPantryItem(Long userId, String canonicalName, String unit) {
+        if (unit == null) {
+            return pantryItemRepository.findFirstByUserIdAndCanonicalNameAndUnitIsNullAndQuantityIsNotNull(userId, canonicalName);
+        }
+        return pantryItemRepository.findFirstByUserIdAndCanonicalNameAndUnitAndQuantityIsNotNull(userId, canonicalName, unit);
+    }
+
+    private void removePantryEntry(Long userId, String canonicalName, String unit, boolean numericRequest) {
+        if (numericRequest) {
+            if (unit == null) {
+                pantryItemRepository.deleteAllByUserIdAndCanonicalNameAndUnitIsNullAndQuantityIsNotNull(userId, canonicalName);
+            } else {
+                pantryItemRepository.deleteAllByUserIdAndCanonicalNameAndUnitAndQuantityIsNotNull(userId, canonicalName, unit);
+            }
+            return;
+        }
+        pantryItemRepository.deleteAllByUserIdAndCanonicalNameAndQuantityIsNull(userId, canonicalName);
     }
 
     private Map<String, Object> toMealPlanResponse(MealPlan plan) {

@@ -67,6 +67,13 @@ var Api = (function () {
       });
     },
 
+    updatePantryItem: function (item) {
+      return request("/pantry/item", {
+        method: "PUT",
+        body: JSON.stringify(item),
+      });
+    },
+
     deletePantryItem: function (id) {
       return request("/pantry/" + id, { method: "DELETE" });
     },

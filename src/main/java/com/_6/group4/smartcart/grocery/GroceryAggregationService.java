@@ -15,6 +15,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -40,28 +41,30 @@ public class GroceryAggregationService {
             return GroceryListResponse.empty();
         }
 
-        Set<String> pantryCanonicalNames = new LinkedHashSet<>();
-        if (pantryItems != null) {
-            for (PantryItem pantryItem : pantryItems) {
-                String canonical = IngredientNormalizer.canonicalizeName(pantryItem.getIngredientName());
-                if (!canonical.isBlank()) {
-                    pantryCanonicalNames.add(canonical);
-                }
-            }
-        }
+        PantryCoverage pantryCoverage = PantryCoverage.from(pantryItems);
+        List<GroceryListItemView> remainingItems = new ArrayList<>();
+        List<GroceryListItemView> coveredItems = new ArrayList<>();
+        int pantryAdjustedCount = 0;
 
-        List<GroceryListItemView> items = new ArrayList<>();
-        Set<String> removedCanonical = new LinkedHashSet<>();
         for (GroceryBucket bucket : buckets.values()) {
-            if (pantryCanonicalNames.contains(bucket.canonicalName)) {
-                removedCanonical.add(bucket.canonicalName);
-                continue;
+            GroceryListItemView view = bucket.applyPantry(pantryCoverage);
+            if (view.pantryQuantityValue() != null || pantryCoverage.booleanCoverage.contains(bucket.canonicalName)) {
+                pantryAdjustedCount++;
             }
-            items.add(bucket.toView());
+            if (view.covered()) {
+                coveredItems.add(view);
+            } else {
+                remainingItems.add(view);
+            }
         }
 
-        boolean allCoveredByPantry = !buckets.isEmpty() && items.isEmpty();
-        return new GroceryListResponse(items, removedCanonical.size(), allCoveredByPantry);
+        boolean allCoveredByPantry = !buckets.isEmpty() && remainingItems.isEmpty() && !coveredItems.isEmpty();
+        return new GroceryListResponse(remainingItems, coveredItems, pantryAdjustedCount, allCoveredByPantry);
+    }
+
+    public static String normalizeStoredUnit(String rawUnit) {
+        UnitInfo unitInfo = UnitInfo.from(rawUnit);
+        return unitInfo != null ? unitInfo.displayUnit : null;
     }
 
     private void addIngredient(Map<BucketKey, GroceryBucket> buckets, RecipeIngredient ingredient) {
@@ -92,26 +95,49 @@ public class GroceryAggregationService {
 
         GroceryBucket existing = buckets.get(key);
         if (existing == null) {
-            buckets.put(key, GroceryBucket.create(displayName, canonicalName, quantity, unitInfo));
+            buckets.put(key, GroceryBucket.create(key, displayName, canonicalName, quantity, unitInfo));
             return;
         }
 
         existing.merge(quantity, unitInfo);
     }
 
-    public record GroceryListItemView(String name, String quantity, String category) {
+    public record GroceryListItemView(
+            String itemKey,
+            String name,
+            String canonicalName,
+            String quantity,
+            Double quantityValue,
+            String unit,
+            Double pantryQuantityValue,
+            boolean covered,
+            String inputMode,
+            String category
+    ) {
         Map<String, Object> toMap() {
             Map<String, Object> map = new LinkedHashMap<>();
+            map.put("itemKey", itemKey);
             map.put("name", name);
+            map.put("canonicalName", canonicalName);
             map.put("quantity", quantity);
+            map.put("quantityValue", quantityValue);
+            map.put("unit", unit);
+            map.put("pantryQuantityValue", pantryQuantityValue);
+            map.put("covered", covered);
+            map.put("inputMode", inputMode);
             map.put("category", category);
             return map;
         }
     }
 
-    public record GroceryListResponse(List<GroceryListItemView> items, int pantrySubtractedCount, boolean allCoveredByPantry) {
+    public record GroceryListResponse(
+            List<GroceryListItemView> items,
+            List<GroceryListItemView> coveredItems,
+            int pantrySubtractedCount,
+            boolean allCoveredByPantry
+    ) {
         static GroceryListResponse empty() {
-            return new GroceryListResponse(List.of(), 0, false);
+            return new GroceryListResponse(List.of(), List.of(), 0, false);
         }
 
         public Map<String, Object> toResponseMap() {
@@ -120,8 +146,14 @@ public class GroceryAggregationService {
                 serializedItems.add(item.toMap());
             }
 
+            List<Map<String, Object>> serializedCoveredItems = new ArrayList<>();
+            for (GroceryListItemView item : coveredItems) {
+                serializedCoveredItems.add(item.toMap());
+            }
+
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("items", serializedItems);
+            response.put("coveredItems", serializedCoveredItems);
             response.put("pantrySubtractedCount", pantrySubtractedCount);
             response.put("allCoveredByPantry", allCoveredByPantry);
             return response;
@@ -129,9 +161,13 @@ public class GroceryAggregationService {
     }
 
     private record BucketKey(String canonicalName, String bucketKey, boolean quantityKnown) {
+        String itemKey() {
+            return canonicalName + "|" + bucketKey + "|" + (quantityKnown ? "number" : "toggle");
+        }
     }
 
     private static final class GroceryBucket {
+        private final BucketKey key;
         private final String name;
         private final String canonicalName;
         private final String category;
@@ -139,12 +175,14 @@ public class GroceryAggregationService {
         private final boolean quantityKnown;
         private Double quantity;
 
-        private GroceryBucket(String name,
+        private GroceryBucket(BucketKey key,
+                              String name,
                               String canonicalName,
                               String category,
                               Double quantity,
                               UnitInfo displayUnitInfo,
                               boolean quantityKnown) {
+            this.key = key;
             this.name = name;
             this.canonicalName = canonicalName;
             this.category = category;
@@ -153,8 +191,9 @@ public class GroceryAggregationService {
             this.quantityKnown = quantityKnown;
         }
 
-        static GroceryBucket create(String name, String canonicalName, Double quantity, UnitInfo unitInfo) {
+        static GroceryBucket create(BucketKey key, String name, String canonicalName, Double quantity, UnitInfo unitInfo) {
             return new GroceryBucket(
+                    key,
                     name,
                     canonicalName,
                     categorize(name),
@@ -175,12 +214,137 @@ public class GroceryAggregationService {
             quantity += otherUnitInfo.convertTo(otherQuantity, displayUnitInfo);
         }
 
-        GroceryListItemView toView() {
+        GroceryListItemView applyPantry(PantryCoverage pantryCoverage) {
+            boolean booleanCovered = pantryCoverage.booleanCoverage.contains(canonicalName);
+            if (!quantityKnown) {
+                return new GroceryListItemView(
+                        key.itemKey(),
+                        name,
+                        canonicalName,
+                        displayUnitInfo != null ? displayUnitInfo.displayUnit : "",
+                        null,
+                        displayUnitInfo != null ? displayUnitInfo.displayUnit : null,
+                        null,
+                        booleanCovered,
+                        "toggle",
+                        category
+                );
+            }
+
+            PantryQuantityBucket pantryBucket = pantryCoverage.numericCoverage.get(key);
+            Double pantryQuantityValue = null;
+            if (pantryBucket != null && quantity != null) {
+                pantryQuantityValue = pantryBucket.asDisplayQuantity(displayUnitInfo);
+            }
+
+            boolean covered = booleanCovered;
+            Double remainingQuantity = quantity;
+            if (covered && remainingQuantity != null) {
+                remainingQuantity = 0d;
+            }
+            if (!covered && quantity != null && pantryQuantityValue != null) {
+                remainingQuantity = Math.max(quantity - pantryQuantityValue, 0d);
+                covered = remainingQuantity == 0d;
+            }
+
             return new GroceryListItemView(
+                    key.itemKey(),
                     name,
-                    formatQuantity(quantity, displayUnitInfo != null ? displayUnitInfo.displayUnit : null),
+                    canonicalName,
+                    formatQuantity(remainingQuantity, displayUnitInfo != null ? displayUnitInfo.displayUnit : null),
+                    remainingQuantity,
+                    displayUnitInfo != null ? displayUnitInfo.displayUnit : null,
+                    pantryQuantityValue,
+                    covered,
+                    "number",
                     category
             );
+        }
+    }
+
+    private static final class PantryCoverage {
+        private final Set<String> booleanCoverage;
+        private final Map<BucketKey, PantryQuantityBucket> numericCoverage;
+
+        private PantryCoverage(Set<String> booleanCoverage, Map<BucketKey, PantryQuantityBucket> numericCoverage) {
+            this.booleanCoverage = booleanCoverage;
+            this.numericCoverage = numericCoverage;
+        }
+
+        static PantryCoverage from(Collection<PantryItem> pantryItems) {
+            Set<String> booleanCoverage = new LinkedHashSet<>();
+            Map<BucketKey, PantryQuantityBucket> numericCoverage = new LinkedHashMap<>();
+
+            if (pantryItems == null) {
+                return new PantryCoverage(booleanCoverage, numericCoverage);
+            }
+
+            for (PantryItem pantryItem : pantryItems) {
+                String canonicalName = IngredientNormalizer.canonicalizeName(
+                        pantryItem.getCanonicalName() != null && !pantryItem.getCanonicalName().isBlank()
+                                ? pantryItem.getCanonicalName()
+                                : pantryItem.getIngredientName()
+                );
+                if (canonicalName.isBlank()) {
+                    continue;
+                }
+
+                if (pantryItem.getQuantity() == null) {
+                    booleanCoverage.add(canonicalName);
+                    continue;
+                }
+
+                UnitInfo unitInfo = UnitInfo.from(pantryItem.getUnit());
+                BucketKey key = new BucketKey(
+                        canonicalName,
+                        unitInfo != null ? unitInfo.bucketKey : "no-unit",
+                        true
+                );
+
+                PantryQuantityBucket bucket = numericCoverage.get(key);
+                if (bucket == null) {
+                    numericCoverage.put(key, PantryQuantityBucket.create(pantryItem.getQuantity(), unitInfo));
+                } else {
+                    bucket.merge(pantryItem.getQuantity(), unitInfo);
+                }
+            }
+
+            return new PantryCoverage(booleanCoverage, numericCoverage);
+        }
+    }
+
+    private static final class PantryQuantityBucket {
+        private final UnitInfo displayUnitInfo;
+        private Double quantity;
+
+        private PantryQuantityBucket(Double quantity, UnitInfo displayUnitInfo) {
+            this.quantity = quantity;
+            this.displayUnitInfo = displayUnitInfo;
+        }
+
+        static PantryQuantityBucket create(Double quantity, UnitInfo displayUnitInfo) {
+            return new PantryQuantityBucket(quantity, displayUnitInfo);
+        }
+
+        void merge(Double otherQuantity, UnitInfo otherUnitInfo) {
+            if (quantity == null || otherQuantity == null) {
+                return;
+            }
+            if (displayUnitInfo == null || otherUnitInfo == null) {
+                quantity += otherQuantity;
+                return;
+            }
+            quantity += otherUnitInfo.convertTo(otherQuantity, displayUnitInfo);
+        }
+
+        Double asDisplayQuantity(UnitInfo targetUnitInfo) {
+            if (quantity == null) {
+                return null;
+            }
+            if (displayUnitInfo == null || targetUnitInfo == null) {
+                return quantity;
+            }
+            return displayUnitInfo.convertTo(quantity, targetUnitInfo);
         }
     }
 
@@ -249,10 +413,10 @@ public class GroceryAggregationService {
         }
 
         double convertTo(double quantity, UnitInfo target) {
-            if (!bucketKey.equals(target.bucketKey)) {
+            if (!Objects.equals(bucketKey, target.bucketKey)) {
                 throw new IllegalArgumentException("Cannot convert " + displayUnit + " to " + target.displayUnit);
             }
-            if (displayUnit.equals(target.displayUnit)) {
+            if (Objects.equals(displayUnit, target.displayUnit)) {
                 return quantity;
             }
             double baseQuantity = quantity * baseFactor;

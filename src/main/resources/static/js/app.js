@@ -32,9 +32,11 @@ var state = {
   selectedMeal: null,
   mealPlan: null,
   checkedItems: {},
+  groceryItemIndex: {},
   servingSize: 2,
   selectedDiets: {},
   selectedCuisines: {},
+  pantrySaving: {},
   generating: false
 };
 
@@ -301,93 +303,245 @@ function loadGroceryList() {
     '<p class="text-sm text-muted">Loading grocery list&hellip;</p>';
 
   Api.fetchGroceryList().then(function (data) {
-    renderGroceryList(data.items || [], data || {});
+    renderGroceryList(data || {});
   }).catch(function () {
     container.querySelector(".text-muted").textContent = "Failed to load grocery list.";
   });
 }
 
 function groceryItemKey(item) {
-  return [item.name || "", item.quantity || "", item.category || ""].join("|");
+  return item.itemKey || [item.name || "", item.quantity || "", item.category || ""].join("|");
 }
 
-function renderGroceryList(items, meta) {
-  var container = $("#grocery-content");
-  meta = meta || {};
+function indexGroceryItems(items, coveredItems) {
+  state.groceryItemIndex = {};
+  items.concat(coveredItems).forEach(function (item) {
+    state.groceryItemIndex[groceryItemKey(item)] = item;
+  });
+}
 
-  if (!items.length) {
-    var emptyMessage = meta.allCoveredByPantry
-      ? "Your pantry already covers this week's grocery list."
+function groupGroceryItems(items) {
+  var categories = [];
+  var seen = {};
+  items.forEach(function (item) {
+    if (!seen[item.category]) {
+      seen[item.category] = true;
+      categories.push(item.category);
+    }
+  });
+  return categories;
+}
+
+function renderGroceryRow(item, sectionType) {
+  var itemKey = groceryItemKey(item);
+  var isSaving = !!state.pantrySaving[itemKey];
+  var html = '<li><div class="grocery-row' + (sectionType === "covered" ? " grocery-row-covered" : "") + '">';
+  html += '<div class="grocery-row-main">';
+  html += '<div class="grocery-row-title">';
+  html += '<span class="grocery-name">' + esc(item.name) + "</span>";
+  if (sectionType === "covered" || item.covered) {
+    html += '<span class="grocery-badge">In pantry</span>';
+  }
+  html += "</div>";
+
+  if (item.inputMode === "number") {
+    var quantityLabel = sectionType === "covered"
+      ? (item.quantityValue === 0 ? "Need to buy: none" : "Need to buy: " + esc(item.quantity || ""))
+      : esc(item.quantity || "");
+    html += '<div class="grocery-qty">' + quantityLabel + "</div>";
+  } else if (item.quantity) {
+    html += '<div class="grocery-qty">' + esc(item.quantity) + "</div>";
+  }
+  html += "</div>";
+
+  html += '<div class="grocery-have-control">';
+  html += '<span class="grocery-have-label">Have</span>';
+
+  if (item.inputMode === "number") {
+    html += '<div class="grocery-have-input-group">';
+    html += '<input class="text-input grocery-have-input" type="number" min="0" step="0.01"' +
+      ' data-key="' + esc(itemKey) + '"' +
+      ' value="' + esc(item.pantryQuantityValue != null ? item.pantryQuantityValue : "") + '"' +
+      (isSaving ? " disabled" : "") +
+      ' />';
+    if (item.unit) {
+      html += '<span class="grocery-unit-label">' + esc(item.unit) + "</span>";
+    }
+    html += "</div>";
+  } else {
+    html += '<button class="grocery-toggle' + (item.covered ? " active" : "") + '"' +
+      ' data-key="' + esc(itemKey) + '"' +
+      (isSaving ? " disabled" : "") +
+      '>' + (item.covered ? "In pantry" : "I already have this") + "</button>";
+  }
+
+  html += "</div></div></li>";
+  return html;
+}
+
+function renderGrocerySection(title, items, sectionType) {
+  if (!items.length) return "";
+
+  var categories = groupGroceryItems(items);
+  var html = '<div class="grocery-section">';
+  html += '<div class="grocery-section-header">';
+  html += '<h3 class="grocery-section-title">' + esc(title) + "</h3>";
+  html += '<p class="text-sm text-muted">' + items.length + (items.length === 1 ? " item" : " items") + "</p>";
+  html += "</div>";
+
+  categories.forEach(function (category) {
+    html += '<div class="grocery-category">';
+    html += '<h4 class="category-header">' + esc(category) + "</h4>";
+    html += "<ul>";
+    items.filter(function (item) { return item.category === category; }).forEach(function (item) {
+      html += renderGroceryRow(item, sectionType);
+    });
+    html += "</ul></div>";
+  });
+
+  html += "</div>";
+  return html;
+}
+
+function saveNumericPantryValue(item, quantity, control) {
+  var itemKey = groceryItemKey(item);
+  if (state.pantrySaving[itemKey]) return;
+  state.pantrySaving[itemKey] = true;
+  if (control) control.disabled = true;
+
+  Api.updatePantryItem({
+    name: item.name,
+    canonicalName: item.canonicalName,
+    quantity: quantity,
+    unit: item.unit || null,
+    covered: quantity > 0
+  }).then(function () {
+    delete state.pantrySaving[itemKey];
+    loadGroceryList();
+  }).catch(function (err) {
+    delete state.pantrySaving[itemKey];
+    console.error("Pantry quantity update failed:", err);
+    loadGroceryList();
+  });
+}
+
+function saveTogglePantryValue(item, covered, control) {
+  var itemKey = groceryItemKey(item);
+  if (state.pantrySaving[itemKey]) return;
+  state.pantrySaving[itemKey] = true;
+  if (control) control.disabled = true;
+
+  Api.updatePantryItem({
+    name: item.name,
+    canonicalName: item.canonicalName,
+    quantity: null,
+    unit: null,
+    covered: covered
+  }).then(function () {
+    delete state.pantrySaving[itemKey];
+    loadGroceryList();
+  }).catch(function (err) {
+    delete state.pantrySaving[itemKey];
+    console.error("Pantry toggle update failed:", err);
+    loadGroceryList();
+  });
+}
+
+function commitNumericPantryInput(input) {
+  var item = state.groceryItemIndex[input.getAttribute("data-key")];
+  if (!item) return;
+
+  var rawValue = String(input.value || "").trim();
+  if (!rawValue) {
+    saveNumericPantryValue(item, 0, input);
+    return;
+  }
+
+  var parsedValue = Number(rawValue);
+  if (!isFinite(parsedValue) || parsedValue < 0) {
+    input.value = item.pantryQuantityValue != null ? item.pantryQuantityValue : "";
+    return;
+  }
+
+  saveNumericPantryValue(item, parsedValue, input);
+}
+
+function bindGroceryControls(container) {
+  container.querySelectorAll(".grocery-have-input").forEach(function (input) {
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        input.blur();
+      }
+    });
+
+    input.addEventListener("blur", function () {
+      commitNumericPantryInput(input);
+    });
+  });
+
+  container.querySelectorAll(".grocery-toggle").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var item = state.groceryItemIndex[button.getAttribute("data-key")];
+      if (!item) return;
+      saveTogglePantryValue(item, !item.covered, button);
+    });
+  });
+}
+
+function renderGroceryList(data) {
+  var container = $("#grocery-content");
+  var items = data.items || [];
+  var coveredItems = data.coveredItems || [];
+  indexGroceryItems(items, coveredItems);
+
+  if (!items.length && !coveredItems.length) {
+    var emptyMessage = data.allCoveredByPantry
+      ? "Everything for this week's plan is already in your pantry."
       : "Generate a meal plan first to see your grocery list.";
     var emptyHtml =
       '<h2 style="font-size:1.5rem;font-weight:600;" class="mb-2">Grocery List</h2>' +
       '<p class="text-sm text-muted">' + emptyMessage + "</p>";
-    if (meta.allCoveredByPantry && meta.pantrySubtractedCount) {
+    if (data.allCoveredByPantry && data.pantrySubtractedCount) {
       emptyHtml += '<p class="text-sm text-muted mt-2">' +
-        esc(meta.pantrySubtractedCount + " pantry items were removed from this week's list.") +
+        esc(data.pantrySubtractedCount + " grocery items were adjusted using your pantry.") +
         "</p>";
     }
     container.innerHTML = emptyHtml;
     return;
   }
 
-  var checkedCount = items.filter(function (it) {
-    return !!state.checkedItems[groceryItemKey(it)];
-  }).length;
-  var categories = [];
-  var seen = {};
-  items.forEach(function (it) {
-    if (!seen[it.category]) { seen[it.category] = true; categories.push(it.category); }
-  });
-
   var html = '<div style="animation: fadeIn 0.3s ease-out;">';
   html += '<div class="mb-6">';
   html += '<h2 style="font-size:1.5rem;font-weight:600;">Grocery List</h2>';
   html += '<p class="text-sm text-muted mt-1">' +
-    checkedCount + " of " + items.length + " items checked &middot; Aggregated from 7-day plan</p>";
-  if (meta.pantrySubtractedCount) {
+    items.length + (items.length === 1 ? " item left to buy" : " items left to buy") +
+    ' &middot; ' + coveredItems.length + (coveredItems.length === 1 ? " item already in pantry" : " items already in pantry") +
+    "</p>";
+  if (data.pantrySubtractedCount) {
     html += '<p class="text-sm text-muted mt-1">' +
-      esc(meta.pantrySubtractedCount + " pantry items already removed from this list") +
+      esc(data.pantrySubtractedCount + " grocery items adjusted using your pantry amounts") +
       "</p>";
+  }
+  if (!items.length && coveredItems.length) {
+    html += '<p class="text-sm text-muted mt-1">Everything you need for this plan is already covered by pantry items.</p>';
   }
   html += "</div>";
 
-  categories.forEach(function (cat) {
-    html += '<div class="grocery-category">';
-    html += '<h3 class="category-header">' + esc(cat) + "</h3>";
-    html += "<ul>";
-    items.filter(function (it) { return it.category === cat; }).forEach(function (item) {
-      var itemKey = groceryItemKey(item);
-      var isChecked = !!state.checkedItems[itemKey];
-      html += "<li>" +
-        '<button class="grocery-item' + (isChecked ? " checked" : "") +
-        '" data-key="' + esc(itemKey) + '">' +
-        '<span class="grocery-check">' +
-        '<svg width="10" height="8" viewBox="0 0 10 8" fill="none">' +
-        '<path d="M1 4L3.5 6.5L9 1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
-        "</svg></span>" +
-        '<span class="grocery-name">' + esc(item.name) + "</span>" +
-        '<span class="grocery-qty">' + esc(item.quantity) + "</span>" +
-        "</button></li>";
-    });
-    html += "</ul></div>";
-  });
+  html += renderGrocerySection("Need to Buy", items, "remaining");
+  html += renderGrocerySection("Already in Pantry", coveredItems, "covered");
 
-  html += '<div class="grocery-footer">';
-  html += '<button class="btn-primary btn-primary-full">Send to Instacart &rarr;</button>';
-  html += '<p style="font-size:0.75rem;color:var(--muted-foreground);text-align:center;margin-top:0.5rem;">' +
-    "Opens Instacart with your items pre-filled</p>";
-  html += "</div></div>";
+  if (items.length) {
+    html += '<div class="grocery-footer">';
+    html += '<button class="btn-primary btn-primary-full">Send Remaining Items to Instacart &rarr;</button>';
+    html += '<p style="font-size:0.75rem;color:var(--muted-foreground);text-align:center;margin-top:0.5rem;">' +
+      "Uses only the ingredients and quantities you still need to buy</p>";
+    html += "</div>";
+  }
+  html += "</div>";
 
   container.innerHTML = html;
-
-  container.querySelectorAll(".grocery-item").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var itemKey = btn.getAttribute("data-key");
-      state.checkedItems[itemKey] = !state.checkedItems[itemKey];
-      renderGroceryList(items, meta);
-    });
-  });
+  bindGroceryControls(container);
 }
 
 /* =================================================================
