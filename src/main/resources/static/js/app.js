@@ -301,23 +301,39 @@ function loadGroceryList() {
     '<p class="text-sm text-muted">Loading grocery list&hellip;</p>';
 
   Api.fetchGroceryList().then(function (data) {
-    renderGroceryList(data.items || []);
+    renderGroceryList(data.items || [], data || {});
   }).catch(function () {
     container.querySelector(".text-muted").textContent = "Failed to load grocery list.";
   });
 }
 
-function renderGroceryList(items) {
+function groceryItemKey(item) {
+  return [item.name || "", item.quantity || "", item.category || ""].join("|");
+}
+
+function renderGroceryList(items, meta) {
   var container = $("#grocery-content");
+  meta = meta || {};
 
   if (!items.length) {
-    container.innerHTML =
+    var emptyMessage = meta.allCoveredByPantry
+      ? "Your pantry already covers this week's grocery list."
+      : "Generate a meal plan first to see your grocery list.";
+    var emptyHtml =
       '<h2 style="font-size:1.5rem;font-weight:600;" class="mb-2">Grocery List</h2>' +
-      '<p class="text-sm text-muted">Generate a meal plan first to see your grocery list.</p>';
+      '<p class="text-sm text-muted">' + emptyMessage + "</p>";
+    if (meta.allCoveredByPantry && meta.pantrySubtractedCount) {
+      emptyHtml += '<p class="text-sm text-muted mt-2">' +
+        esc(meta.pantrySubtractedCount + " pantry items were removed from this week's list.") +
+        "</p>";
+    }
+    container.innerHTML = emptyHtml;
     return;
   }
 
-  var checkedCount = items.filter(function (it) { return !!state.checkedItems[it.name]; }).length;
+  var checkedCount = items.filter(function (it) {
+    return !!state.checkedItems[groceryItemKey(it)];
+  }).length;
   var categories = [];
   var seen = {};
   items.forEach(function (it) {
@@ -329,6 +345,11 @@ function renderGroceryList(items) {
   html += '<h2 style="font-size:1.5rem;font-weight:600;">Grocery List</h2>';
   html += '<p class="text-sm text-muted mt-1">' +
     checkedCount + " of " + items.length + " items checked &middot; Aggregated from 7-day plan</p>";
+  if (meta.pantrySubtractedCount) {
+    html += '<p class="text-sm text-muted mt-1">' +
+      esc(meta.pantrySubtractedCount + " pantry items already removed from this list") +
+      "</p>";
+  }
   html += "</div>";
 
   categories.forEach(function (cat) {
@@ -336,10 +357,11 @@ function renderGroceryList(items) {
     html += '<h3 class="category-header">' + esc(cat) + "</h3>";
     html += "<ul>";
     items.filter(function (it) { return it.category === cat; }).forEach(function (item) {
-      var isChecked = !!state.checkedItems[item.name];
+      var itemKey = groceryItemKey(item);
+      var isChecked = !!state.checkedItems[itemKey];
       html += "<li>" +
         '<button class="grocery-item' + (isChecked ? " checked" : "") +
-        '" data-name="' + esc(item.name) + '">' +
+        '" data-key="' + esc(itemKey) + '">' +
         '<span class="grocery-check">' +
         '<svg width="10" height="8" viewBox="0 0 10 8" fill="none">' +
         '<path d="M1 4L3.5 6.5L9 1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
@@ -361,9 +383,9 @@ function renderGroceryList(items) {
 
   container.querySelectorAll(".grocery-item").forEach(function (btn) {
     btn.addEventListener("click", function () {
-      var name = btn.getAttribute("data-name");
-      state.checkedItems[name] = !state.checkedItems[name];
-      renderGroceryList(items);
+      var itemKey = btn.getAttribute("data-key");
+      state.checkedItems[itemKey] = !state.checkedItems[itemKey];
+      renderGroceryList(items, meta);
     });
   });
 }

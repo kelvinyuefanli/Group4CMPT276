@@ -4,6 +4,8 @@ import com._6.group4.smartcart.auth.User;
 import com._6.group4.smartcart.auth.UserPreferences;
 import com._6.group4.smartcart.auth.UserPreferencesRepository;
 import com._6.group4.smartcart.auth.UserRepository;
+import com._6.group4.smartcart.grocery.GroceryAggregationService;
+import com._6.group4.smartcart.grocery.IngredientNormalizer;
 import com._6.group4.smartcart.grocery.PantryItem;
 import com._6.group4.smartcart.grocery.PantryItemRepository;
 import com._6.group4.smartcart.mealplanning.dto.GeminiMealPlanDto;
@@ -31,19 +33,22 @@ public class MealPlanApiController {
     private final UserRepository userRepository;
     private final UserPreferencesRepository preferencesRepository;
     private final PantryItemRepository pantryItemRepository;
+    private final GroceryAggregationService groceryAggregationService;
 
     public MealPlanApiController(GeminiService geminiService,
                                  RecipeRepository recipeRepository,
                                  MealPlanRepository mealPlanRepository,
                                  UserRepository userRepository,
                                  UserPreferencesRepository preferencesRepository,
-                                 PantryItemRepository pantryItemRepository) {
+                                 PantryItemRepository pantryItemRepository,
+                                 GroceryAggregationService groceryAggregationService) {
         this.geminiService = geminiService;
         this.recipeRepository = recipeRepository;
         this.mealPlanRepository = mealPlanRepository;
         this.userRepository = userRepository;
         this.preferencesRepository = preferencesRepository;
         this.pantryItemRepository = pantryItemRepository;
+        this.groceryAggregationService = groceryAggregationService;
     }
 
     /** Resolves the current user ID from session. Returns null if not authenticated. */
@@ -195,26 +200,14 @@ public class MealPlanApiController {
     public ResponseEntity<?> getGroceryList(HttpSession session) {
         Long userId = getCurrentUserId(session);
         if (userId == null) return UNAUTHORIZED;
+
+        List<PantryItem> pantryItems = pantryItemRepository.findAllByUserIdOrderByIngredientName(userId);
         Optional<MealPlan> planOpt = mealPlanRepository.findTopByUserIdOrderByCreatedAtDesc(userId);
-        if (planOpt.isEmpty()) {
-            return ResponseEntity.ok(Map.of("items", List.of()));
-        }
-
-        MealPlan plan = planOpt.get();
-        Map<String, GroceryItem> aggregated = new LinkedHashMap<>();
-
-        for (MealPlanRecipe mpr : plan.getRecipes()) {
-            for (RecipeIngredient ri : mpr.getRecipe().getIngredients()) {
-                String key = ri.getIngredientName().toLowerCase();
-                aggregated.merge(key, new GroceryItem(ri), GroceryItem::merge);
-            }
-        }
-
-        List<Map<String, Object>> items = new ArrayList<>();
-        for (GroceryItem gi : aggregated.values()) {
-            items.add(gi.toMap());
-        }
-        return ResponseEntity.ok(Map.of("items", items));
+        return ResponseEntity.ok(
+                groceryAggregationService
+                        .buildGroceryList(planOpt.orElse(null), pantryItems)
+                        .toResponseMap()
+        );
     }
 
     // ---- Preferences ------------------------------------------------------
@@ -344,6 +337,7 @@ public class MealPlanApiController {
 
         for (GeminiRecipeDto.IngredientDto ingredient : dto.normalizedIngredients()) {
             RecipeIngredient ri = new RecipeIngredient(recipe, ingredient.safeName());
+            ri.setCanonicalName(IngredientNormalizer.canonicalizeName(ingredient.safeName()));
 
             Double quantity = ingredient.quantityAsDouble();
             if (quantity != null) {
@@ -411,48 +405,5 @@ public class MealPlanApiController {
         resp.put("instructions", r.getInstructions());
         resp.put("ingredients", ings);
         return resp;
-    }
-
-    /** Helper for aggregating grocery items by ingredient name. */
-    private static class GroceryItem {
-        String name;
-        Double quantity;
-        String unit;
-        String category;
-
-        GroceryItem(RecipeIngredient ri) {
-            this.name = ri.getIngredientName();
-            this.quantity = ri.getQuantity();
-            this.unit = ri.getUnit();
-            this.category = categorize(ri.getIngredientName());
-        }
-
-        GroceryItem merge(GroceryItem other) {
-            if (this.quantity != null && other.quantity != null
-                    && Objects.equals(this.unit, other.unit)) {
-                this.quantity += other.quantity;
-            }
-            return this;
-        }
-
-        Map<String, Object> toMap() {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("name", name);
-            String qty = quantity != null
-                    ? (unit != null ? quantity + " " + unit : String.valueOf(quantity))
-                    : (unit != null ? unit : "");
-            m.put("quantity", qty);
-            m.put("category", category);
-            return m;
-        }
-
-        static String categorize(String name) {
-            String lower = name.toLowerCase();
-            if (lower.matches(".*(chicken|beef|salmon|turkey|pork|fish|shrimp|tofu|egg).*")) return "Protein";
-            if (lower.matches(".*(milk|cheese|yogurt|cream|butter).*")) return "Dairy";
-            if (lower.matches(".*(lettuce|tomato|onion|garlic|pepper|carrot|celery|spinach|avocado|lemon|lime|basil|parsley|cilantro|dill|ginger|broccoli|cabbage|cucumber).*"))
-                return "Produce";
-            return "Pantry";
-        }
     }
 }

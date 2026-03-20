@@ -1,5 +1,6 @@
 package com._6.group4.smartcart.mealplanning;
 
+import com._6.group4.smartcart.grocery.IngredientNormalizer;
 import com._6.group4.smartcart.mealplanning.dto.GeminiMealPlanDto;
 import com._6.group4.smartcart.mealplanning.dto.GeminiRecipeDto;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -265,6 +266,7 @@ class GeminiPipelineDemoTest {
 
         for (GeminiRecipeDto.IngredientDto ing : dto.normalizedIngredients()) {
             RecipeIngredient ri = new RecipeIngredient(recipe, ing.safeName());
+            ri.setCanonicalName(IngredientNormalizer.canonicalizeName(ing.safeName()));
 
             Double quantity = ing.quantityAsDouble();
             if (quantity != null) {
