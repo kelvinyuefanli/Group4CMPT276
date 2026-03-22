@@ -74,6 +74,21 @@
         document.getElementById("email").value = params.get("email");
       }
     })();
+    // Inject CSRF token into form before submission
+    (function () {
+      var form = document.getElementById("reg-form");
+      if (!form) return;
+      form.addEventListener("submit", function () {
+        var match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);
+        if (match) {
+          var input = document.createElement("input");
+          input.type = "hidden";
+          input.name = "_csrf";
+          input.value = decodeURIComponent(match[1]);
+          form.appendChild(input);
+        }
+      });
+    })();
   </script>
 </body>
 </html>

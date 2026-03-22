@@ -208,11 +208,18 @@ class GeminiPipelineDemoTest {
         recipe.setSource("gemini");
 
         if (dto.ingredients() != null) {
-            for (GeminiRecipeDto.IngredientDto ing : dto.ingredients()) {
-                RecipeIngredient ri = new RecipeIngredient(recipe, ing.name());
-                ri.setQuantity(ing.quantity());
-                ri.setUnit(ing.unit());
-                recipe.getIngredients().add(ri);
+            for (Object ing : dto.ingredients()) {
+                if (ing instanceof java.util.Map<?, ?> ingMap) {
+                    String name = ingMap.get("name") != null ? ingMap.get("name").toString() : "unknown";
+                    RecipeIngredient ri = new RecipeIngredient(recipe, name.trim());
+                    Object qtyObj = ingMap.get("quantity");
+                    if (qtyObj instanceof Number n) ri.setQuantity(n.doubleValue());
+                    Object unitObj = ingMap.get("unit");
+                    if (unitObj != null) ri.setUnit(unitObj.toString().trim());
+                    recipe.getIngredients().add(ri);
+                } else if (ing instanceof String s) {
+                    recipe.getIngredients().add(new RecipeIngredient(recipe, s.trim()));
+                }
             }
         }
         return recipeRepository.save(recipe);

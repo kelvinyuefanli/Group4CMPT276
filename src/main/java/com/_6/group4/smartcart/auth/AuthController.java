@@ -13,10 +13,6 @@ import java.util.Map;
 @Controller
 public class AuthController {
 
-    private static final String SESSION_USER_ID = "USER_ID";
-    private static final String SESSION_USER_EMAIL = "USER_EMAIL";
-    private static final String SESSION_IS_ADMIN = "IS_ADMIN";
-
     private final AuthService authService;
 
     public AuthController(AuthService authService) {
@@ -25,7 +21,7 @@ public class AuthController {
 
     @GetMapping("/")
     public String root(HttpSession session) {
-        if (session.getAttribute(SESSION_USER_ID) != null) {
+        if (session.getAttribute(SessionKeys.USER_ID) != null) {
             return "redirect:/app.html";
         }
         return "redirect:/landing.html";
@@ -33,9 +29,9 @@ public class AuthController {
 
     @GetMapping(value = "/api/auth/me", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> authMe(HttpSession session) {
-        Object userId = session.getAttribute(SESSION_USER_ID);
-        Object email = session.getAttribute(SESSION_USER_EMAIL);
-        Boolean isAdmin = (Boolean) session.getAttribute(SESSION_IS_ADMIN);
+        Object userId = session.getAttribute(SessionKeys.USER_ID);
+        Object email = session.getAttribute(SessionKeys.USER_EMAIL);
+        Boolean isAdmin = (Boolean) session.getAttribute(SessionKeys.IS_ADMIN);
         boolean loggedIn = userId != null && email != null;
         Map<String, Object> body = loggedIn
             ? Map.of("loggedIn", true, "email", email.toString(),
@@ -46,7 +42,7 @@ public class AuthController {
 
     @GetMapping("/dashboard")
     public String dashboard(HttpSession session) {
-        if (session.getAttribute(SESSION_USER_ID) == null) {
+        if (session.getAttribute(SessionKeys.USER_ID) == null) {
             return "redirect:/login.html";
         }
         return "redirect:/app.html";
@@ -54,8 +50,8 @@ public class AuthController {
 
     @GetMapping("/admin")
     public String admin(HttpSession session) {
-        Boolean isAdmin = (Boolean) session.getAttribute(SESSION_IS_ADMIN);
-        if (session.getAttribute(SESSION_USER_ID) == null || !Boolean.TRUE.equals(isAdmin)) {
+        Boolean isAdmin = (Boolean) session.getAttribute(SessionKeys.IS_ADMIN);
+        if (session.getAttribute(SessionKeys.USER_ID) == null || !Boolean.TRUE.equals(isAdmin)) {
             return "redirect:/login.html";
         }
         return "redirect:/admin.html";
@@ -106,9 +102,9 @@ public class AuthController {
     ) {
         try {
             User user = authService.login(email, password);
-            session.setAttribute(SESSION_USER_ID, user.getId());
-            session.setAttribute(SESSION_USER_EMAIL, user.getEmail());
-            session.setAttribute(SESSION_IS_ADMIN, user.isAdmin());
+            session.setAttribute(SessionKeys.USER_ID, user.getId());
+            session.setAttribute(SessionKeys.USER_EMAIL, user.getEmail());
+            session.setAttribute(SessionKeys.IS_ADMIN, user.isAdmin());
             if (user.isAdmin()) {
                 return "redirect:/admin.html";
             }
