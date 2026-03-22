@@ -17,22 +17,22 @@ public class UserPreferences {
     @Column(name = "serving_size", nullable = false)
     private int servingSize = 2;
 
-    @Column(name = "dietary_restrictions")
+    @Column(name = "dietary_restrictions", length = 1000)
     private String dietaryRestrictions;
 
-    @Column
+    @Column(length = 1000)
     private String allergies;
 
-    @Column(name = "preferred_cuisines")
+    @Column(name = "preferred_cuisines", length = 1000)
     private String preferredCuisines;
 
     @Column(name = "rotate_cuisines", nullable = false)
     private boolean rotateCuisines = true;
 
-    @Column(name = "disliked_foods")
+    @Column(name = "disliked_foods", length = 1000)
     private String dislikedFoods;
 
-    @Column(name = "meal_schedule")
+    @Column(name = "meal_schedule", length = 2000)
     private String mealSchedule;
 
     @Column(name = "preferred_proteins")
