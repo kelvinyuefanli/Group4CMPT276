@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "pantry_items")
+@Access(AccessType.FIELD)
 public class PantryItem {
 
     @Id
@@ -32,7 +33,7 @@ public class PantryItem {
 
     public PantryItem(User user, String ingredientName) {
         this.user = user;
-        this.ingredientName = ingredientName;
+        setIngredientName(ingredientName);
     }
 
     @PrePersist
@@ -50,6 +51,8 @@ public class PantryItem {
     public void setUser(User user) { this.user = user; }
     public String getIngredientName() { return ingredientName; }
     public void setIngredientName(String ingredientName) { this.ingredientName = ingredientName; }
+    @Transient
+    public String getCanonicalName() { return IngredientNormalizer.canonicalizeName(ingredientName); }
     public Double getQuantity() { return quantity; }
     public void setQuantity(Double quantity) { this.quantity = quantity; }
     public String getUnit() { return unit; }

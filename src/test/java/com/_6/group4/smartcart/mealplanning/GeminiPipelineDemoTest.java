@@ -1,5 +1,6 @@
 package com._6.group4.smartcart.mealplanning;
 
+import com._6.group4.smartcart.grocery.IngredientNormalizer;
 import com._6.group4.smartcart.mealplanning.dto.GeminiMealPlanDto;
 import com._6.group4.smartcart.mealplanning.dto.GeminiRecipeDto;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -57,7 +58,7 @@ class GeminiPipelineDemoTest {
           "cuisine": "Japanese",
           "cookTimeMinutes": 20,
           "servings": 2,
-          "instructions": "1. Whisk together soy sauce, mirin, brown sugar, and grated ginger in a small bowl. 2. Place salmon fillets skin-side down in an oven-safe skillet. 3. Pour teriyaki sauce over salmon. 4. Bake at 400°F (200°C) for 12-15 minutes until fish flakes easily. 5. Broil for 2 minutes to caramelize the glaze. 6. Serve over steamed rice, garnished with sesame seeds and sliced green onion.",
+          "instructions": "1. Whisk together soy sauce, mirin, brown sugar, and grated ginger in a small bowl. 2. Place salmon fillets skin-side down in an oven-safe skillet. 3. Pour teriyaki sauce over salmon. 4. Bake at 400\u00b0F (200\u00b0C) for 12-15 minutes until fish flakes easily. 5. Broil for 2 minutes to caramelize the glaze. 6. Serve over steamed rice, garnished with sesame seeds and sliced green onion.",
           "ingredients": [
             { "name": "salmon fillets", "quantity": 2.0, "unit": "pieces" },
             { "name": "soy sauce", "quantity": 3.0, "unit": "tbsp" },
@@ -105,7 +106,7 @@ class GeminiPipelineDemoTest {
           "cuisine": null,
           "cookTimeMinutes": 30,
           "servings": 2,
-          "instructions": "1. Cook quinoa according to package directions. 2. Roast chickpeas with olive oil, paprika, and garlic powder at 425°F for 20 minutes. 3. Slice avocado, shred purple cabbage, and julienne carrots. 4. Assemble bowls with quinoa base, roasted chickpeas, and all vegetables. 5. Drizzle with tahini dressing (tahini, lemon juice, water, pinch of salt).",
+          "instructions": "1. Cook quinoa according to package directions. 2. Roast chickpeas with olive oil, paprika, and garlic powder at 425\u00b0F for 20 minutes. 3. Slice avocado, shred purple cabbage, and julienne carrots. 4. Assemble bowls with quinoa base, roasted chickpeas, and all vegetables. 5. Drizzle with tahini dressing (tahini, lemon juice, water, pinch of salt).",
           "ingredients": [
             { "name": "quinoa", "quantity": 1.0, "unit": "cup" },
             { "name": "canned chickpeas", "quantity": 1.0, "unit": "can" },
@@ -189,13 +190,69 @@ class GeminiPipelineDemoTest {
 
     /** Same logic as GeminiService.parseJson -- strips markdown fences then parses. */
     private <T> T parseJson(String raw, Class<T> type) throws Exception {
+        String cleaned = extractJsonPayload(raw);
+        return mapper.readValue(cleaned, type);
+    }
+
+    private String extractJsonPayload(String raw) {
         String cleaned = raw.strip();
         if (cleaned.startsWith("```")) {
             cleaned = cleaned.replaceFirst("^```[a-zA-Z]*\\n?", "");
             cleaned = cleaned.replaceFirst("```\\s*$", "");
             cleaned = cleaned.strip();
         }
-        return mapper.readValue(cleaned, type);
+
+        int objectStart = cleaned.indexOf('{');
+        if (objectStart < 0) {
+            return cleaned;
+        }
+
+        int objectEnd = findJsonObjectEnd(cleaned, objectStart);
+        if (objectEnd < 0) {
+            return cleaned;
+        }
+
+        return cleaned.substring(objectStart, objectEnd + 1);
+    }
+
+    private int findJsonObjectEnd(String text, int startIndex) {
+        int depth = 0;
+        boolean inString = false;
+        boolean escaping = false;
+
+        for (int i = startIndex; i < text.length(); i++) {
+            char current = text.charAt(i);
+
+            if (escaping) {
+                escaping = false;
+                continue;
+            }
+
+            if (current == '\\' && inString) {
+                escaping = true;
+                continue;
+            }
+
+            if (current == '"') {
+                inString = !inString;
+                continue;
+            }
+
+            if (inString) {
+                continue;
+            }
+
+            if (current == '{') {
+                depth++;
+            } else if (current == '}') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+
+        return -1;
     }
 
     /** Same logic as MealPlanController.persistRecipe */
@@ -207,46 +264,130 @@ class GeminiPipelineDemoTest {
         recipe.setCuisine(dto.cuisine());
         recipe.setSource("gemini");
 
-        if (dto.ingredients() != null) {
-            for (Object ing : dto.ingredients()) {
-                if (ing instanceof java.util.Map<?, ?> ingMap) {
-                    String name = ingMap.get("name") != null ? ingMap.get("name").toString() : "unknown";
-                    RecipeIngredient ri = new RecipeIngredient(recipe, name.trim());
-                    Object qtyObj = ingMap.get("quantity");
-                    if (qtyObj instanceof Number n) ri.setQuantity(n.doubleValue());
-                    Object unitObj = ingMap.get("unit");
-                    if (unitObj != null) ri.setUnit(unitObj.toString().trim());
-                    recipe.getIngredients().add(ri);
-                } else if (ing instanceof String s) {
-                    recipe.getIngredients().add(new RecipeIngredient(recipe, s.trim()));
-                }
+        for (GeminiRecipeDto.IngredientDto ing : dto.normalizedIngredients()) {
+            RecipeIngredient ri = new RecipeIngredient(recipe, ing.safeName());
+            ri.setCanonicalName(IngredientNormalizer.canonicalizeName(ing.safeName()));
+
+            Double quantity = ing.quantityAsDouble();
+            if (quantity != null) {
+                ri.setQuantity(quantity);
             }
+
+            String unit = ing.safeUnit();
+            if (unit != null) {
+                ri.setUnit(unit);
+            }
+
+            recipe.getIngredients().add(ri);
         }
         return recipeRepository.save(recipe);
     }
 
     private void dumpRecipe(Recipe r) {
-        System.out.println("  ┌─ Recipe #" + r.getId());
-        System.out.println("  │  title:    " + r.getTitle());
-        System.out.println("  │  cuisine:  " + r.getCuisine());
-        System.out.println("  │  cook:     " + r.getCookTimeMinutes() + " min");
-        System.out.println("  │  servings: " + r.getServings());
-        System.out.println("  │  source:   " + r.getSource());
-        System.out.println("  │  created:  " + r.getCreatedAt());
-        System.out.println("  │  instructions: " + truncate(r.getInstructions(), 100));
-        System.out.println("  │  ingredients (" + r.getIngredients().size() + "):");
+        System.out.println("  \u250c\u2500 Recipe #" + r.getId());
+        System.out.println("  \u2502  title:    " + r.getTitle());
+        System.out.println("  \u2502  cuisine:  " + r.getCuisine());
+        System.out.println("  \u2502  cook:     " + r.getCookTimeMinutes() + " min");
+        System.out.println("  \u2502  servings: " + r.getServings());
+        System.out.println("  \u2502  source:   " + r.getSource());
+        System.out.println("  \u2502  created:  " + r.getCreatedAt());
+        System.out.println("  \u2502  instructions: " + truncate(r.getInstructions(), 100));
+        System.out.println("  \u2502  ingredients (" + r.getIngredients().size() + "):");
         for (RecipeIngredient ri : r.getIngredients()) {
-            System.out.printf("  │    - %-25s %s %s%n",
+            System.out.printf("  \u2502    - %-25s %s %s%n",
                 ri.getIngredientName(),
-                ri.getQuantity() != null ? ri.getQuantity() : "—",
+                ri.getQuantity() != null ? ri.getQuantity() : "\u2014",
                 ri.getUnit() != null ? ri.getUnit() : "");
         }
-        System.out.println("  └──────────────────────────────────");
+        System.out.println("  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
     }
 
     private String truncate(String s, int max) {
         if (s == null) return "null";
         return s.length() <= max ? s : s.substring(0, max) + "...";
+    }
+
+    @Test
+    void normalizesMixedIngredientFormats() throws Exception {
+        String wrappedJson = """
+            Gemini sometimes adds commentary before the payload.
+            {
+              "title": "Overnight Oats",
+              "cuisine": null,
+              "cookTimeMinutes": 5,
+              "servings": 1,
+              "instructions": "Mix and chill overnight.",
+              "ingredients": [
+                "rolled oats",
+                { "name": "milk", "quantity": "1 1/2", "unit": "cups" },
+                { "name": "cinnamon", "quantity": "\\u00BD", "unit": "tsp" },
+                { "name": "chia seeds", "quantity": "about 2", "unit": "tbsp" },
+                { "name": "vanilla", "quantity": "a splash", "unit": null }
+              ]
+            }
+            Extra trailing commentary.
+            """;
+
+        GeminiRecipeDto dto = parseJson(wrappedJson, GeminiRecipeDto.class);
+
+        assertThat(dto.normalizedIngredients()).extracting(GeminiRecipeDto.IngredientDto::safeName)
+            .containsExactly("rolled oats", "milk", "cinnamon", "chia seeds", "vanilla");
+        assertThat(dto.normalizedIngredients().get(1).quantityAsDouble()).isEqualTo(1.5d);
+        assertThat(dto.normalizedIngredients().get(2).quantityAsDouble()).isEqualTo(0.5d);
+        assertThat(dto.normalizedIngredients().get(3).quantityAsDouble()).isEqualTo(2.0d);
+        assertThat(dto.normalizedIngredients().get(4).quantityAsDouble()).isNull();
+    }
+
+    @Test
+    void parsesArrayBackedGeminiFields() throws Exception {
+        String mealPlanJson = """
+            {
+              "meals": [
+                {
+                  "dayOfWeek": ["MONDAY"],
+                  "mealType": ["DINNER"],
+                  "recipe": {
+                    "title": ["Sheet Pan Tofu"],
+                    "cuisine": ["Korean"],
+                    "cookTimeMinutes": ["25"],
+                    "servings": { "value": "2" },
+                    "instructions": [
+                      "Press the tofu.",
+                      { "text": "Roast with vegetables until browned." }
+                    ],
+                    "ingredients": [
+                      {
+                        "name": ["firm tofu"],
+                        "quantity": ["1", "1/2"],
+                        "unit": ["blocks"]
+                      },
+                      {
+                        "name": "gochujang",
+                        "quantity": { "value": "2" },
+                        "unit": ["tbsp"]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+            """;
+
+        GeminiMealPlanDto plan = parseJson(mealPlanJson, GeminiMealPlanDto.class);
+        GeminiMealPlanDto.MealEntry entry = plan.meals().get(0);
+
+        assertThat(entry.dayOfWeek()).isEqualTo("MONDAY");
+        assertThat(entry.mealType()).isEqualTo("DINNER");
+        assertThat(entry.recipe().title()).isEqualTo("Sheet Pan Tofu");
+        assertThat(entry.recipe().cuisine()).isEqualTo("Korean");
+        assertThat(entry.recipe().cookTimeMinutes()).isEqualTo(25);
+        assertThat(entry.recipe().servings()).isEqualTo(2);
+        assertThat(entry.recipe().instructions()).contains("Press the tofu.");
+        assertThat(entry.recipe().instructions()).contains("Roast with vegetables until browned.");
+        assertThat(entry.recipe().normalizedIngredients().get(0).safeName()).isEqualTo("firm tofu");
+        assertThat(entry.recipe().normalizedIngredients().get(0).quantityAsDouble()).isEqualTo(1.5d);
+        assertThat(entry.recipe().normalizedIngredients().get(0).safeUnit()).isEqualTo("blocks");
+        assertThat(entry.recipe().normalizedIngredients().get(1).quantityAsDouble()).isEqualTo(2.0d);
     }
 
     // ======================== THE TEST ================================ //
@@ -256,7 +397,7 @@ class GeminiPipelineDemoTest {
     void demoFiveGeminiResponses() throws Exception {
 
         // -------- DEMO 1: Italian Chicken Pasta --------
-        System.out.println("\n========== DEMO 1: Single Recipe — Italian Chicken Pasta ==========");
+        System.out.println("\n========== DEMO 1: Single Recipe \u2014 Italian Chicken Pasta ==========");
         GeminiRecipeDto dto1 = parseJson(DEMO_1_RECIPE, GeminiRecipeDto.class);
         System.out.println("  Parsed DTO title: " + dto1.title());
         System.out.println("  Parsed DTO ingredients count: " + dto1.ingredients().size());
@@ -265,7 +406,7 @@ class GeminiPipelineDemoTest {
         dumpRecipe(saved1);
 
         // -------- DEMO 2: Japanese Teriyaki Salmon --------
-        System.out.println("\n========== DEMO 2: Single Recipe — Teriyaki Glazed Salmon ==========");
+        System.out.println("\n========== DEMO 2: Single Recipe \u2014 Teriyaki Glazed Salmon ==========");
         GeminiRecipeDto dto2 = parseJson(DEMO_2_RECIPE, GeminiRecipeDto.class);
         System.out.println("  Parsed DTO title: " + dto2.title());
         System.out.println("  Parsed DTO ingredients count: " + dto2.ingredients().size());
@@ -274,7 +415,7 @@ class GeminiPipelineDemoTest {
         dumpRecipe(saved2);
 
         // -------- DEMO 3: Mexican Tacos (with markdown fences) --------
-        System.out.println("\n========== DEMO 3: Single Recipe — Spicy Beef Tacos (markdown fenced) ==========");
+        System.out.println("\n========== DEMO 3: Single Recipe \u2014 Spicy Beef Tacos (markdown fenced) ==========");
         GeminiRecipeDto dto3 = parseJson(DEMO_3_RECIPE_WITH_FENCES, GeminiRecipeDto.class);
         System.out.println("  Parsed DTO title: " + dto3.title());
         System.out.println("  Parsed DTO ingredients count: " + dto3.ingredients().size());
@@ -283,7 +424,7 @@ class GeminiPipelineDemoTest {
         dumpRecipe(saved3);
 
         // -------- DEMO 4: Vegan Buddha Bowl (null cuisine) --------
-        System.out.println("\n========== DEMO 4: Single Recipe — Vegan Buddha Bowl (null cuisine) ==========");
+        System.out.println("\n========== DEMO 4: Single Recipe \u2014 Vegan Buddha Bowl (null cuisine) ==========");
         GeminiRecipeDto dto4 = parseJson(DEMO_4_RECIPE_NO_CUISINE, GeminiRecipeDto.class);
         System.out.println("  Parsed DTO title: " + dto4.title());
         System.out.println("  Parsed DTO cuisine: " + dto4.cuisine());
@@ -293,7 +434,7 @@ class GeminiPipelineDemoTest {
         dumpRecipe(saved4);
 
         // -------- DEMO 5: Meal Plan (Monday 3 meals) --------
-        System.out.println("\n========== DEMO 5: Meal Plan — Monday (BREAKFAST / LUNCH / DINNER) ==========");
+        System.out.println("\n========== DEMO 5: Meal Plan \u2014 Monday (BREAKFAST / LUNCH / DINNER) ==========");
         GeminiMealPlanDto plan = parseJson(DEMO_5_MEAL_PLAN, GeminiMealPlanDto.class);
         System.out.println("  Parsed meal entries: " + plan.meals().size());
         for (GeminiMealPlanDto.MealEntry entry : plan.meals()) {

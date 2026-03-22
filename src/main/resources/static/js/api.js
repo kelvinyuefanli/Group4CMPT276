@@ -32,10 +32,16 @@ var Api = (function () {
       return request("/meal-plan");
     },
 
-    generateMealPlan: function (pantryIngredients) {
+    generateMealPlan: function (data) {
+      var payload;
+      if (typeof data === "string" || data == null) {
+        payload = { pantryIngredients: data || "" };
+      } else {
+        payload = Object.assign({ pantryIngredients: "" }, data);
+      }
       return request("/meal-plan/generate", {
         method: "POST",
-        body: JSON.stringify({ pantryIngredients: pantryIngredients || "" }),
+        body: JSON.stringify(payload),
       });
     },
 
@@ -66,6 +72,13 @@ var Api = (function () {
       return request("/pantry", {
         method: "POST",
         body: JSON.stringify({ items: items }),
+      });
+    },
+
+    updatePantryItem: function (item) {
+      return request("/pantry/item", {
+        method: "PUT",
+        body: JSON.stringify(item),
       });
     },
 

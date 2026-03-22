@@ -1,10 +1,10 @@
 package com._6.group4.smartcart.mealplanning;
 
 import com._6.group4.smartcart.mealplanning.dto.GeminiRecipeDto;
+import com._6.group4.smartcart.mealplanning.dto.GeminiRecipeDto.IngredientDto;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,7 +51,7 @@ class AllergyVerificationTest {
     void recipeContainsAllergen_noAllergensReturnsFalse() {
         GeminiRecipeDto recipe = new GeminiRecipeDto(
                 "Test", "Italian", 30, 4, "Instructions",
-                List.of(Map.of("name", "chicken breast")));
+                List.of(new IngredientDto("chicken breast", 1.0, "lb")));
         assertThat(MealPlanApiController.recipeContainsAllergen(recipe, Set.of())).isFalse();
     }
 
@@ -63,21 +63,13 @@ class AllergyVerificationTest {
     }
 
     @Test
-    void recipeContainsAllergen_detectsAllergenInMapIngredient() {
+    void recipeContainsAllergen_detectsAllergenInIngredient() {
         GeminiRecipeDto recipe = new GeminiRecipeDto(
                 "Pad Thai", "Thai", 25, 2, "Instructions",
                 List.of(
-                        Map.of("name", "rice noodles", "quantity", 200, "unit", "g"),
-                        Map.of("name", "peanut butter", "quantity", 2, "unit", "tbsp")
+                        new IngredientDto("rice noodles", 200, "g"),
+                        new IngredientDto("peanut butter", 2, "tbsp")
                 ));
-        assertThat(MealPlanApiController.recipeContainsAllergen(recipe, Set.of("peanut"))).isTrue();
-    }
-
-    @Test
-    void recipeContainsAllergen_detectsAllergenInStringIngredient() {
-        GeminiRecipeDto recipe = new GeminiRecipeDto(
-                "PB Sandwich", null, 5, 1, "Spread",
-                List.of("peanut butter", "bread"));
         assertThat(MealPlanApiController.recipeContainsAllergen(recipe, Set.of("peanut"))).isTrue();
     }
 
@@ -86,9 +78,9 @@ class AllergyVerificationTest {
         GeminiRecipeDto recipe = new GeminiRecipeDto(
                 "Grilled Chicken", "American", 20, 2, "Grill it",
                 List.of(
-                        Map.of("name", "chicken breast"),
-                        Map.of("name", "olive oil"),
-                        Map.of("name", "salt")
+                        new IngredientDto("chicken breast", 1, "lb"),
+                        new IngredientDto("olive oil", 2, "tbsp"),
+                        new IngredientDto("salt", 1, "tsp")
                 ));
         assertThat(MealPlanApiController.recipeContainsAllergen(recipe, Set.of("peanut", "shellfish"))).isFalse();
     }
@@ -97,7 +89,7 @@ class AllergyVerificationTest {
     void recipeContainsAllergen_caseInsensitive() {
         GeminiRecipeDto recipe = new GeminiRecipeDto(
                 "Test", null, 10, 1, "Test",
-                List.of(Map.of("name", "Shrimp Tempura")));
+                List.of(new IngredientDto("Shrimp Tempura", 1, "serving")));
         assertThat(MealPlanApiController.recipeContainsAllergen(recipe, Set.of("shrimp"))).isTrue();
     }
 }

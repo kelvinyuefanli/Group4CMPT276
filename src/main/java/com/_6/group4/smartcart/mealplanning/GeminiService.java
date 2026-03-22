@@ -84,6 +84,8 @@ public class GeminiService {
             prompt.append("The recipe should be ").append(sanitizeInput(cuisine)).append(" cuisine. ");
         }
 
+        prompt.append("If a quantity is unknown, return null. ");
+        prompt.append("Do not combine quantity and unit into one field, but always include the ingredient name. ");
         prompt.append("Return ONLY valid JSON (no markdown fences, no extra text) matching this schema:\n");
         prompt.append(RECIPE_JSON_SCHEMA);
 
@@ -92,8 +94,8 @@ public class GeminiService {
         return parseJson(raw, GeminiRecipeDto.class);
     }
 
-    public GeminiMealPlanDto generateMealPlan(String pantryIngredients, String preferences) {
-        return generateMealPlan(pantryIngredients, preferences, null, false, null, null, null);
+    public GeminiMealPlanDto generateMealPlan(String pantryIngredients, int servingSize, String preferences) {
+        return generateMealPlan(pantryIngredients, servingSize, preferences, null, false, null, null, null);
     }
 
     /**
@@ -124,6 +126,59 @@ public class GeminiService {
         String raw = generateContent(prompt.toString());
         if (raw == null) return null;
         return parseJson(raw, GeminiRecipeDto.class);
+    }
+
+    public GeminiMealPlanDto generateMealPlan(String pantryIngredients, int servingSize, String dietaryRestrictions,
+            String allergies, boolean rotateCuisines, String preferredCuisines,
+            String dislikedFoods, String mealSchedule) {
+
+        Set<MealPlanGenerationSupport.MealSlot> requestedSlots =
+            MealPlanGenerationSupport.expectedSlots(mealSchedule);
+        LinkedHashMap<MealPlanGenerationSupport.MealSlot, GeminiMealPlanDto.MealEntry> acceptedMeals =
+            new LinkedHashMap<>();
+        List<MealPlanGenerationSupport.MealSlot> remainingSlots = new ArrayList<>(
+            requestedSlots
+        );
+        String lastRaw = null;
+
+        for (int attempt = 1; attempt <= 3 && !remainingSlots.isEmpty(); attempt++) {
+            Set<MealPlanGenerationSupport.MealSlot> remainingSlotSet = new LinkedHashSet<>(remainingSlots);
+            String prompt = buildMealPlanPrompt(
+                pantryIngredients,
+                servingSize,
+                dietaryRestrictions,
+                allergies,
+                rotateCuisines,
+                preferredCuisines,
+                dislikedFoods,
+                MealPlanGenerationSupport.serializeSlots(remainingSlotSet),
+                remainingSlotSet,
+                attempt > 1,
+                !acceptedMeals.isEmpty()
+            );
+
+            lastRaw = generateContent(prompt);
+            GeminiMealPlanDto dto = parseJson(lastRaw, GeminiMealPlanDto.class);
+            MealPlanGenerationSupport.ExtractedMeals extracted =
+                MealPlanGenerationSupport.extractValidMeals(dto, remainingSlotSet, servingSize);
+
+            acceptedMeals.putAll(extracted.acceptedMeals());
+            remainingSlots = extracted.missingSlots();
+        }
+
+        if (!remainingSlots.isEmpty()) {
+            log.warn(
+                "Gemini meal plan generation incomplete. Missing {} slots: {}",
+                remainingSlots.size(),
+                MealPlanGenerationSupport.describeSlots(new LinkedHashSet<>(remainingSlots))
+            );
+            if (lastRaw != null) {
+                log.debug("Last incomplete Gemini meal plan response: {}", lastRaw);
+            }
+            return null;
+        }
+
+        return MealPlanGenerationSupport.buildMealPlan(acceptedMeals);
     }
 
     public GeminiMealPlanDto generateMealPlan(String pantryIngredients, String dietaryRestrictions,
@@ -163,8 +218,125 @@ public class GeminiService {
         preferredVegetables = sampleFromList(preferredVegetables, 5);
         preferredFruits = sampleFromList(preferredFruits, 3);
 
+        Set<MealPlanGenerationSupport.MealSlot> requestedSlots =
+            MealPlanGenerationSupport.expectedSlots(mealSchedule);
+        LinkedHashMap<MealPlanGenerationSupport.MealSlot, GeminiMealPlanDto.MealEntry> acceptedMeals =
+            new LinkedHashMap<>();
+        List<MealPlanGenerationSupport.MealSlot> remainingSlots = new ArrayList<>(requestedSlots);
+        String lastRaw = null;
+
+        for (int attempt = 1; attempt <= 3 && !remainingSlots.isEmpty(); attempt++) {
+            Set<MealPlanGenerationSupport.MealSlot> remainingSlotSet = new LinkedHashSet<>(remainingSlots);
+            String prompt = buildFullMealPlanPrompt(
+                pantryIngredients, servingSize, dietaryRestrictions, allergies,
+                rotateCuisines, preferredCuisines, dislikedFoods,
+                MealPlanGenerationSupport.serializeSlots(remainingSlotSet),
+                remainingSlotSet,
+                preferredProteins, preferredVegetables, preferredFruits,
+                attempt > 1, !acceptedMeals.isEmpty()
+            );
+
+            lastRaw = generateContent(prompt);
+            GeminiMealPlanDto dto = parseJson(lastRaw, GeminiMealPlanDto.class);
+            MealPlanGenerationSupport.ExtractedMeals extracted =
+                MealPlanGenerationSupport.extractValidMeals(dto, remainingSlotSet, servingSize);
+
+            acceptedMeals.putAll(extracted.acceptedMeals());
+            remainingSlots = extracted.missingSlots();
+        }
+
+        if (!remainingSlots.isEmpty()) {
+            log.warn(
+                "Gemini meal plan generation incomplete. Missing {} slots: {}",
+                remainingSlots.size(),
+                MealPlanGenerationSupport.describeSlots(new LinkedHashSet<>(remainingSlots))
+            );
+            if (lastRaw != null) {
+                log.debug("Last incomplete Gemini meal plan response: {}", lastRaw);
+            }
+            return null;
+        }
+
+        return MealPlanGenerationSupport.buildMealPlan(acceptedMeals);
+    }
+
+    private String buildMealPlanPrompt(String pantryIngredients, int servingSize, String dietaryRestrictions,
+            String allergies, boolean rotateCuisines, String preferredCuisines,
+            String dislikedFoods, String mealSchedule, Set<MealPlanGenerationSupport.MealSlot> requestedSlots,
+            boolean isRetry, boolean partialPlanAlreadyExists) {
+
         StringBuilder prompt = new StringBuilder();
-        prompt.append("Create a weekly meal plan (Monday to Sunday, 3 meals per day: BREAKFAST, LUNCH, DINNER). ");
+        if (mealSchedule != null && !mealSchedule.isBlank()) {
+            prompt.append("Generate meals ONLY for these day and meal slots: ")
+                .append(MealPlanGenerationSupport.describeSlots(requestedSlots))
+                .append(". ");
+        } else {
+            prompt.append("Create a weekly meal plan (Monday to Sunday, 3 meals per day: BREAKFAST, LUNCH, DINNER). ");
+        }
+
+        prompt.append("Return exactly ").append(requestedSlots.size()).append(" meal entries. ");
+        prompt.append("Each recipe must make ").append(servingSize).append(" servings. ");
+        prompt.append("Every dayOfWeek must be one of MONDAY to SUNDAY and every mealType must be BREAKFAST, LUNCH, or DINNER. ");
+
+        if (pantryIngredients != null && !pantryIngredients.isBlank()) {
+            prompt.append("Use primarily these available ingredients: ").append(pantryIngredients).append(". ");
+        } else {
+            prompt.append("If pantry ingredients are missing, use common accessible grocery ingredients. ");
+        }
+
+        if (dietaryRestrictions != null && !dietaryRestrictions.isBlank()) {
+            prompt.append("Dietary restrictions (MUST follow): ").append(sanitizeInput(dietaryRestrictions)).append(". ");
+        }
+
+        if (allergies != null && !allergies.isBlank()) {
+            prompt.append("CRITICAL: This person has SEVERE food allergies to: ")
+                  .append(sanitizeInput(allergies))
+                  .append(". ABSOLUTELY DO NOT include any of these allergens or their derivatives in ANY recipe. ");
+        }
+
+        if (preferredCuisines != null && !preferredCuisines.isBlank()) {
+            prompt.append("Preferred cuisines: ").append(sanitizeInput(preferredCuisines)).append(". ");
+            if (rotateCuisines) {
+                prompt.append("Rotate between these cuisines across different days so the week has variety. ");
+            }
+        }
+
+        if (dislikedFoods != null && !dislikedFoods.isBlank()) {
+            prompt.append("Avoid these disliked foods: ").append(sanitizeInput(dislikedFoods)).append(". ");
+        }
+
+        prompt.append("Base meals on the provided ingredients as much as possible and minimize extra ingredients. ");
+        prompt.append("For each recipe include title, cuisine, cookTimeMinutes, servings, full instructions, ");
+        prompt.append("and an ingredients list with name, quantity, and unit. ");
+        prompt.append("If a quantity is unknown, use null instead of free-form text whenever possible. ");
+        prompt.append("Keep scalar fields as plain strings or numbers, not arrays or nested wrappers. ");
+        if (isRetry) {
+            prompt.append("Previous output was incomplete or invalid. Double-check every requested slot before you answer. ");
+        }
+        if (partialPlanAlreadyExists) {
+            prompt.append("Only fill the missing slots requested in this prompt and do not repeat meals for other slots. ");
+        }
+        prompt.append("Return ONLY valid JSON (no markdown fences, no extra text) matching this schema:\n");
+        prompt.append(MEAL_PLAN_JSON_SCHEMA);
+        return prompt.toString();
+    }
+
+    private String buildFullMealPlanPrompt(String pantryIngredients, int servingSize, String dietaryRestrictions,
+            String allergies, boolean rotateCuisines, String preferredCuisines,
+            String dislikedFoods, String mealSchedule, Set<MealPlanGenerationSupport.MealSlot> requestedSlots,
+            String preferredProteins, String preferredVegetables, String preferredFruits,
+            boolean isRetry, boolean partialPlanAlreadyExists) {
+
+        StringBuilder prompt = new StringBuilder();
+        if (mealSchedule != null && !mealSchedule.isBlank()) {
+            prompt.append("Generate meals ONLY for these day and meal slots: ")
+                .append(MealPlanGenerationSupport.describeSlots(requestedSlots))
+                .append(". ");
+        } else {
+            prompt.append("Create a weekly meal plan (Monday to Sunday, 3 meals per day: BREAKFAST, LUNCH, DINNER). ");
+        }
+
+        prompt.append("Return exactly ").append(requestedSlots.size()).append(" meal entries. ");
         prompt.append("Cooking for ").append(servingSize).append(servingSize == 1 ? " person" : " people").append(". ");
 
         // ---- NUTRITIONAL BALANCE GUIDELINES ----
@@ -228,37 +400,33 @@ public class GeminiService {
             if (rotateCuisines) {
                 prompt.append("Rotate between these cuisines across different days so the week has variety. ");
             }
+            prompt.append("When cuisine preferences conflict with dietary restrictions, prioritize dietary safety and choose the closest compliant cuisine option. ");
         }
 
         if (dislikedFoods != null && !dislikedFoods.isBlank()) {
             prompt.append("\nAvoid these disliked foods: ").append(sanitizeInput(dislikedFoods)).append(". ");
         }
 
-        if (mealSchedule != null && !mealSchedule.isBlank()) {
-            prompt.append("\nOnly generate meals for these day/meal slots (skip the rest): ")
-                  .append(sanitizeInput(mealSchedule)).append(". ");
-        }
-
         prompt.append("\nFor each recipe include title, cuisine, cookTimeMinutes, servings, full instructions, ");
         prompt.append("and a COMPLETE ingredients list with name, quantity, and unit (include ALL ingredients including vegetables, proteins, grains). ");
+        prompt.append("If a quantity is unknown, use null instead of free-form text whenever possible. ");
+        prompt.append("Keep scalar fields as plain strings or numbers, not arrays or nested wrappers. ");
+        if (isRetry) {
+            prompt.append("Previous output was incomplete or invalid. Double-check every requested slot before you answer. ");
+        }
+        if (partialPlanAlreadyExists) {
+            prompt.append("Only fill the missing slots requested in this prompt and do not repeat meals for other slots. ");
+        }
         prompt.append("Return ONLY valid JSON (no markdown fences, no extra text) matching this schema:\n");
         prompt.append(MEAL_PLAN_JSON_SCHEMA);
-
-        String raw = generateContent(prompt.toString());
-        if (raw == null) return null;
-        return parseJson(raw, GeminiMealPlanDto.class);
+        return prompt.toString();
     }
 
     <T> T parseJson(String raw, Class<T> type) {
         if (raw == null || raw.isBlank()) {
             return null;
         }
-        String cleaned = raw.strip();
-        if (cleaned.startsWith("```")) {
-            cleaned = cleaned.replaceFirst("^```[a-zA-Z]*\\n?", "");
-            cleaned = cleaned.replaceFirst("```\\s*$", "");
-            cleaned = cleaned.strip();
-        }
+        String cleaned = extractJsonPayload(raw);
         try {
             return objectMapper.readValue(cleaned, type);
         } catch (JsonProcessingException e) {
@@ -268,7 +436,68 @@ public class GeminiService {
         }
     }
 
-    // ---- Low-level Gemini API interaction ----
+    private String extractJsonPayload(String raw) {
+        String cleaned = raw.strip();
+        if (cleaned.startsWith("```")) {
+            cleaned = cleaned.replaceFirst("^```[a-zA-Z]*\\n?", "");
+            cleaned = cleaned.replaceFirst("```\\s*$", "");
+            cleaned = cleaned.strip();
+        }
+
+        int objectStart = cleaned.indexOf('{');
+        if (objectStart < 0) {
+            return cleaned;
+        }
+
+        int objectEnd = findJsonObjectEnd(cleaned, objectStart);
+        if (objectEnd < 0) {
+            return cleaned;
+        }
+
+        return cleaned.substring(objectStart, objectEnd + 1);
+    }
+
+    private int findJsonObjectEnd(String text, int startIndex) {
+        int depth = 0;
+        boolean inString = false;
+        boolean escaping = false;
+
+        for (int i = startIndex; i < text.length(); i++) {
+            char current = text.charAt(i);
+
+            if (escaping) {
+                escaping = false;
+                continue;
+            }
+
+            if (current == '\\' && inString) {
+                escaping = true;
+                continue;
+            }
+
+            if (current == '"') {
+                inString = !inString;
+                continue;
+            }
+
+            if (inString) {
+                continue;
+            }
+
+            if (current == '{') {
+                depth++;
+            } else if (current == '}') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+
+        return -1;
+    }
+
+    // ---- Error type tracking ----
 
     /**
      * Encapsulates the result of a Gemini API call, including error context
@@ -301,6 +530,8 @@ public class GeminiService {
             case NONE -> null;
         };
     }
+
+    // ---- Low-level Gemini API interaction ----
 
     private String generateContent(String prompt) {
         lastErrorType = GeminiErrorType.NONE;
