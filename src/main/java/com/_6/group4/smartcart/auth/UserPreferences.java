@@ -35,6 +35,15 @@ public class UserPreferences {
     @Column(name = "meal_schedule")
     private String mealSchedule;
 
+    @Column(name = "preferred_proteins")
+    private String preferredProteins;
+
+    @Column(name = "preferred_vegetables")
+    private String preferredVegetables;
+
+    @Column(name = "preferred_fruits")
+    private String preferredFruits;
+
     @Column(name = "onboarding_completed", nullable = false)
     private boolean onboardingCompleted = false;
 
@@ -61,6 +70,12 @@ public class UserPreferences {
     public void setDislikedFoods(String dislikedFoods) { this.dislikedFoods = dislikedFoods; }
     public String getMealSchedule() { return mealSchedule; }
     public void setMealSchedule(String mealSchedule) { this.mealSchedule = mealSchedule; }
+    public String getPreferredProteins() { return preferredProteins; }
+    public void setPreferredProteins(String preferredProteins) { this.preferredProteins = preferredProteins; }
+    public String getPreferredVegetables() { return preferredVegetables; }
+    public void setPreferredVegetables(String preferredVegetables) { this.preferredVegetables = preferredVegetables; }
+    public String getPreferredFruits() { return preferredFruits; }
+    public void setPreferredFruits(String preferredFruits) { this.preferredFruits = preferredFruits; }
     public boolean isOnboardingCompleted() { return onboardingCompleted; }
     public void setOnboardingCompleted(boolean onboardingCompleted) { this.onboardingCompleted = onboardingCompleted; }
 }

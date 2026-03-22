@@ -129,45 +129,95 @@ public class GeminiService {
     public GeminiMealPlanDto generateMealPlan(String pantryIngredients, String dietaryRestrictions,
             String allergies, boolean rotateCuisines, String preferredCuisines,
             String dislikedFoods, String mealSchedule) {
+        return generateMealPlan(pantryIngredients, dietaryRestrictions, allergies,
+                rotateCuisines, preferredCuisines, dislikedFoods, mealSchedule,
+                null, null, null, 2);
+    }
+
+    public GeminiMealPlanDto generateMealPlan(String pantryIngredients, String dietaryRestrictions,
+            String allergies, boolean rotateCuisines, String preferredCuisines,
+            String dislikedFoods, String mealSchedule,
+            String preferredProteins, String preferredVegetables, String preferredFruits,
+            int servingSize) {
 
         StringBuilder prompt = new StringBuilder();
         prompt.append("Create a weekly meal plan (Monday to Sunday, 3 meals per day: BREAKFAST, LUNCH, DINNER). ");
+        prompt.append("Cooking for ").append(servingSize).append(servingSize == 1 ? " person" : " people").append(". ");
 
-        if (pantryIngredients != null && !pantryIngredients.isBlank()) {
-            prompt.append("Use primarily these available ingredients: ")
-                  .append(sanitizeInput(pantryIngredients)).append(". ");
+        // ---- NUTRITIONAL BALANCE GUIDELINES ----
+        prompt.append("\n\nNUTRITIONAL BALANCE RULES (MUST FOLLOW):\n");
+        prompt.append("Every meal MUST include protein, vegetables or fruit, and carbohydrates. ");
+        prompt.append("Follow the plate model: 1/2 plate vegetables+fruit, 1/4 plate protein, 1/4 plate carbs.\n");
+        prompt.append("- BREAKFAST: 50-60% carbs, 20-25% protein, 20-30% vegetables/fruit. Include eggs, yogurt, or meat for protein.\n");
+        prompt.append("- LUNCH: 40-50% carbs, 25-30% protein, 25-35% vegetables. Most balanced meal of the day.\n");
+        prompt.append("- DINNER: 30-40% carbs, 25-35% protein, 30-40% vegetables. Emphasize vegetables, smaller carb portions.\n");
+        prompt.append("NEVER create a meal that is only carbs and condiments (e.g., no 'ketchup sandwich' or 'buttered toast' as a full meal). ");
+        prompt.append("Every meal must have a real protein source and real vegetables or fruit.\n\n");
+
+        // ---- WEEKLY SHOPPING PROTEINS ----
+        if (preferredProteins != null && !preferredProteins.isBlank()) {
+            prompt.append("WEEKLY PROTEINS TO BUY: The user will buy these proteins for the week: ")
+                  .append(sanitizeInput(preferredProteins)).append(". ");
+            prompt.append("Use ONLY these 2-3 protein types across the entire week. ");
+            prompt.append("Plan portions so one purchase lasts multiple meals (e.g., 1 pack of chicken thighs for 3 dinners, ");
+            prompt.append("1 dozen eggs for 4 breakfasts). Reuse the same protein across different recipes for efficiency.\n");
+        } else {
+            prompt.append("Include a variety of proteins across the week (chicken, beef, fish, eggs, beans, tofu). ");
+            prompt.append("Limit to 2-3 protein types total to minimize grocery shopping.\n");
         }
 
+        // ---- WEEKLY SHOPPING VEGETABLES & FRUITS ----
+        if (preferredVegetables != null && !preferredVegetables.isBlank()) {
+            prompt.append("WEEKLY VEGETABLES TO BUY: ").append(sanitizeInput(preferredVegetables)).append(". ");
+            prompt.append("Use these vegetables across multiple meals throughout the week. ");
+            prompt.append("Plan so one bunch/pack is used in 3-4 meals (e.g., 1 head of broccoli across 3 dinners).\n");
+        } else {
+            prompt.append("Include vegetables in every lunch and dinner. Use 4-5 vegetable types across the week, reusing them across meals.\n");
+        }
+
+        if (preferredFruits != null && !preferredFruits.isBlank()) {
+            prompt.append("WEEKLY FRUITS TO BUY: ").append(sanitizeInput(preferredFruits)).append(". ");
+            prompt.append("Include fruit in breakfasts and as sides. Plan portions for the week.\n");
+        }
+
+        // ---- PANTRY STAPLES ----
+        if (pantryIngredients != null && !pantryIngredients.isBlank()) {
+            prompt.append("\nPANTRY STAPLES (already on hand, do not add to grocery list): ")
+                  .append(sanitizeInput(pantryIngredients)).append(". ");
+            prompt.append("Use these freely as base ingredients but do NOT make meals from ONLY pantry staples. ");
+            prompt.append("Pantry staples are supporting ingredients, not the main dish.\n");
+        }
+
+        // ---- DIETARY CONSTRAINTS ----
         if (dietaryRestrictions != null && !dietaryRestrictions.isBlank()) {
-            prompt.append("Dietary restrictions (MUST follow): ")
+            prompt.append("\nDietary restrictions (MUST follow): ")
                   .append(sanitizeInput(dietaryRestrictions)).append(". ");
         }
 
         if (allergies != null && !allergies.isBlank()) {
-            prompt.append("CRITICAL: This person has SEVERE food allergies to: ")
+            prompt.append("\nCRITICAL: This person has SEVERE food allergies to: ")
                   .append(sanitizeInput(allergies))
                   .append(". ABSOLUTELY DO NOT include any of these allergens or their derivatives in ANY recipe. ");
         }
 
         if (preferredCuisines != null && !preferredCuisines.isBlank()) {
-            prompt.append("Preferred cuisines: ").append(sanitizeInput(preferredCuisines)).append(". ");
+            prompt.append("\nPreferred cuisines: ").append(sanitizeInput(preferredCuisines)).append(". ");
             if (rotateCuisines) {
                 prompt.append("Rotate between these cuisines across different days so the week has variety. ");
             }
         }
 
         if (dislikedFoods != null && !dislikedFoods.isBlank()) {
-            prompt.append("Avoid these disliked foods: ").append(sanitizeInput(dislikedFoods)).append(". ");
+            prompt.append("\nAvoid these disliked foods: ").append(sanitizeInput(dislikedFoods)).append(". ");
         }
 
         if (mealSchedule != null && !mealSchedule.isBlank()) {
-            prompt.append("Only generate meals for these day/meal slots (skip the rest): ")
+            prompt.append("\nOnly generate meals for these day/meal slots (skip the rest): ")
                   .append(sanitizeInput(mealSchedule)).append(". ");
         }
 
-        prompt.append("Base meals on the provided ingredients as much as possible and minimize extra ingredients. ");
-        prompt.append("For each recipe include title, cuisine, cookTimeMinutes, servings, full instructions, ");
-        prompt.append("and an ingredients list with name, quantity, and unit. ");
+        prompt.append("\nFor each recipe include title, cuisine, cookTimeMinutes, servings, full instructions, ");
+        prompt.append("and a COMPLETE ingredients list with name, quantity, and unit (include ALL ingredients including vegetables, proteins, grains). ");
         prompt.append("Return ONLY valid JSON (no markdown fences, no extra text) matching this schema:\n");
         prompt.append(MEAL_PLAN_JSON_SCHEMA);
 

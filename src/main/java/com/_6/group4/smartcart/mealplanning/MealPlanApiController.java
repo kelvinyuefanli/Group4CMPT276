@@ -104,7 +104,11 @@ public class MealPlanApiController {
                 prefs != null && prefs.isRotateCuisines(),
                 preferredCuisines,
                 prefs != null ? prefs.getDislikedFoods() : null,
-                prefs != null ? prefs.getMealSchedule() : null
+                prefs != null ? prefs.getMealSchedule() : null,
+                prefs != null ? prefs.getPreferredProteins() : null,
+                prefs != null ? prefs.getPreferredVegetables() : null,
+                prefs != null ? prefs.getPreferredFruits() : null,
+                prefs != null ? prefs.getServingSize() : 2
         );
         if (dto == null || dto.meals() == null || dto.meals().isEmpty()) {
             String errorMsg = geminiService.getLastErrorMessage();
@@ -226,6 +230,9 @@ public class MealPlanApiController {
                     resp.put("rotateCuisines", p.isRotateCuisines());
                     resp.put("dislikedFoods", p.getDislikedFoods());
                     resp.put("mealSchedule", p.getMealSchedule());
+                    resp.put("preferredProteins", p.getPreferredProteins());
+                    resp.put("preferredVegetables", p.getPreferredVegetables());
+                    resp.put("preferredFruits", p.getPreferredFruits());
                     resp.put("onboardingCompleted", p.isOnboardingCompleted());
                     return ResponseEntity.ok(resp);
                 })
@@ -277,6 +284,15 @@ public class MealPlanApiController {
             }
             if (body.containsKey("mealSchedule")) {
                 prefs.setMealSchedule(toString(body.get("mealSchedule")));
+            }
+            if (body.containsKey("preferredProteins")) {
+                prefs.setPreferredProteins(toString(body.get("preferredProteins")));
+            }
+            if (body.containsKey("preferredVegetables")) {
+                prefs.setPreferredVegetables(toString(body.get("preferredVegetables")));
+            }
+            if (body.containsKey("preferredFruits")) {
+                prefs.setPreferredFruits(toString(body.get("preferredFruits")));
             }
             if (body.containsKey("onboardingCompleted")) {
                 Object val = body.get("onboardingCompleted");
