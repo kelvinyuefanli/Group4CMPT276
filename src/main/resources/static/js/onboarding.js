@@ -747,21 +747,84 @@ var Onboarding = (function () {
     };
   }
 
+  /* ---- loading messages (Kevin Hale style — delight during the wait) ---- */
+  var LOADING_MESSAGES = [
+    { text: "Convincing the AI that ketchup is not a vegetable...", emoji: "🍅" },
+    { text: "Teaching our chef bot that toast is not a meal...", emoji: "🍞" },
+    { text: "Negotiating with broccoli to be delicious...", emoji: "🥦" },
+    { text: "Asking salmon how it wants to be cooked...", emoji: "🐟" },
+    { text: "Making sure nobody gets a mustard sandwich...", emoji: "🌭" },
+    { text: "Calculating the perfect chicken-to-vegetable ratio...", emoji: "🍗" },
+    { text: "Reminding the AI that cereal for dinner is frowned upon...", emoji: "🥣" },
+    { text: "Ensuring your meals have actual nutrients...", emoji: "💪" },
+    { text: "Politely rejecting 'bread with bread' as a recipe...", emoji: "🥖" },
+    { text: "Cross-referencing your pantry with good taste...", emoji: "👨‍🍳" },
+    { text: "Whispering sweet nothings to the Gemini API...", emoji: "🤖" },
+    { text: "Assembling 21 meals that won't disappoint your stomach...", emoji: "🫃" },
+    { text: "Double-checking that we didn't plan leftovers for Monday...", emoji: "📅" },
+    { text: "Vetoing the AI's suggestion of 'deconstructed water'...", emoji: "💧" },
+    { text: "Making your grocery list shorter than a CVS receipt...", emoji: "🧾" },
+    { text: "Plotting world domination through meal prep...", emoji: "🌍" },
+    { text: "Your meals are being curated by a very sophisticated algorithm...", emoji: "🧠" },
+    { text: "Almost there — just seasoning the data...", emoji: "🧂" },
+  ];
+
+  var _loadingInterval = null;
+
+  function startLoadingMessages(card) {
+    var msgEl = card.querySelector("#loading-message");
+    var emojiEl = card.querySelector("#loading-emoji");
+    if (!msgEl) return;
+
+    var index = 0;
+    function next() {
+      index = (index + 1) % LOADING_MESSAGES.length;
+      // Fade out
+      msgEl.style.opacity = "0";
+      emojiEl.style.opacity = "0";
+      setTimeout(function () {
+        msgEl.textContent = LOADING_MESSAGES[index].text;
+        emojiEl.textContent = LOADING_MESSAGES[index].emoji;
+        // Fade in
+        msgEl.style.opacity = "1";
+        emojiEl.style.opacity = "1";
+      }, 300);
+    }
+
+    // Shuffle the first message
+    index = Math.floor(Math.random() * LOADING_MESSAGES.length);
+    msgEl.textContent = LOADING_MESSAGES[index].text;
+    emojiEl.textContent = LOADING_MESSAGES[index].emoji;
+
+    _loadingInterval = setInterval(next, 3500);
+  }
+
+  function stopLoadingMessages() {
+    if (_loadingInterval) {
+      clearInterval(_loadingInterval);
+      _loadingInterval = null;
+    }
+  }
+
   /* ---- persist onboarding to server (user must be authenticated) ---- */
   function persistOnboarding(payload) {
     var overlay = document.getElementById("onboarding-overlay");
     var card = overlay.querySelector(".onboarding-card");
     card.innerHTML =
       '<div style="text-align:center;padding:3rem 0;">' +
-      '<div class="logo" style="font-size:1.5rem;margin-bottom:1rem;">Smart<span class="logo-accent">Cart</span></div>' +
-      '<p class="onboarding-subtitle">Creating your personalized meal plan...</p>' +
-      '<p class="text-muted text-sm">This may take a minute</p>' +
+      '<div class="logo" style="font-size:1.5rem;margin-bottom:1.5rem;">Smart<span class="logo-accent">Cart</span></div>' +
+      '<div id="loading-emoji" style="font-size:2.5rem;margin-bottom:1rem;transition:opacity 0.3s;">🍳</div>' +
+      '<p class="onboarding-subtitle" id="loading-message" style="transition:opacity 0.3s;min-height:1.5em;">Warming up the kitchen...</p>' +
+      '<div class="spinner" style="margin:1.5rem auto;"></div>' +
+      '<p class="text-muted text-sm" style="margin-top:0.5rem;">Usually takes 30\u201360 seconds</p>' +
       '</div>';
+    startLoadingMessages(card);
 
     Api.updatePreferences(payload.prefs)
       .then(function () { return Api.savePantry(payload.pantryItems); })
       .then(function () { return Api.generateMealPlan(payload.pantryItems.join(", ")); })
       .then(function (plan) {
+        stopLoadingMessages();
         sessionStorage.removeItem("onboardingPayload");
         overlay.setAttribute("hidden", "");
         document.querySelector(".app").style.display = "";
@@ -776,6 +839,7 @@ var Onboarding = (function () {
         }
       })
       .catch(function (err) {
+        stopLoadingMessages();
         console.error("Onboarding submit failed:", err);
         card.innerHTML =
           '<div style="text-align:center;padding:2rem 0;">' +
