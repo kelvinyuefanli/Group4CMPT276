@@ -31,6 +31,20 @@ var PROTEIN_OPTIONS = [
   { name: "Other Protein", items: ["Eggs", "Tofu", "Tempeh", "Black Beans", "Chickpeas", "Lentils"] }
 ];
 
+var VEGETABLE_OPTIONS = [
+  { name: "Leafy Greens", items: ["Spinach", "Kale", "Romaine Lettuce", "Mixed Greens"] },
+  { name: "Cruciferous", items: ["Broccoli", "Cauliflower", "Brussels Sprouts", "Cabbage"] },
+  { name: "Everyday Veggies", items: ["Bell Peppers", "Zucchini", "Carrots", "Tomatoes", "Cucumber", "Green Beans", "Corn", "Peas"] },
+  { name: "Root & Starchy", items: ["Sweet Potatoes", "Potatoes", "Butternut Squash", "Beets"] },
+  { name: "Alliums & Aromatics", items: ["Mushrooms", "Asparagus", "Celery", "Eggplant"] }
+];
+
+var FRUIT_OPTIONS = [
+  "Bananas", "Apples", "Berries", "Oranges", "Grapes",
+  "Strawberries", "Blueberries", "Avocado", "Mango", "Pineapple",
+  "Peaches", "Pears", "Lemons", "Limes", "Watermelon"
+];
+
 var CHECK_SVG = '<svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 /* =================================================================
@@ -48,6 +62,8 @@ var state = {
   selectedDiets: {},
   selectedCuisines: {},
   selectedProteins: {},
+  selectedVegetables: {},
+  selectedFruits: {},
   pantrySaving: {},
   generating: false
 };
@@ -752,6 +768,20 @@ function loadPreferences() {
         if (trimmed) state.selectedProteins[trimmed] = true;
       });
     }
+    state.selectedVegetables = {};
+    if (prefs.preferredVegetables) {
+      prefs.preferredVegetables.split(",").forEach(function (v) {
+        var trimmed = v.trim();
+        if (trimmed) state.selectedVegetables[trimmed] = true;
+      });
+    }
+    state.selectedFruits = {};
+    if (prefs.preferredFruits) {
+      prefs.preferredFruits.split(",").forEach(function (f) {
+        var trimmed = f.trim();
+        if (trimmed) state.selectedFruits[trimmed] = true;
+      });
+    }
     renderPreferences();
   }).catch(function () {
     renderPreferences();
@@ -763,6 +793,8 @@ function renderPreferences() {
   renderDietChips();
   renderCuisineChips();
   renderProteinPickers();
+  renderVegetablePickers();
+  renderFruitPickers();
 }
 
 function renderServingButtons() {
@@ -900,6 +932,115 @@ function renderProteinPickers() {
       saveProteins();
     });
   });
+}
+
+function renderVegetablePickers() {
+  var container = document.getElementById("vegetable-pickers");
+  if (!container) return;
+
+  var html = "";
+  VEGETABLE_OPTIONS.forEach(function (cat) {
+    html += '<div class="staple-category">';
+    html += '<div class="staple-category-header">';
+    html += '<span class="staple-category-title">' + esc(cat.name) + '</span>';
+    html += '<button class="staple-toggle-all" data-cat="' + esc(cat.name) + '">Toggle all</button>';
+    html += '</div>';
+    html += '<div class="staple-grid">';
+    cat.items.forEach(function (item) {
+      var on = !!state.selectedVegetables[item];
+      html += '<button class="staple-item' + (on ? " on" : "") + '" data-item="' + esc(item) + '">';
+      html += '<span class="staple-check">' + CHECK_SVG + '</span>';
+      html += '<span>' + esc(item) + '</span>';
+      html += '</button>';
+    });
+    html += '</div></div>';
+  });
+
+  container.innerHTML = html;
+
+  function saveVegetables() {
+    var vegStr = Object.keys(state.selectedVegetables).join(", ") || null;
+    Api.updatePreferences({ preferredVegetables: vegStr });
+  }
+
+  container.querySelectorAll(".staple-item").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var item = btn.getAttribute("data-item");
+      if (state.selectedVegetables[item]) {
+        delete state.selectedVegetables[item];
+      } else {
+        state.selectedVegetables[item] = true;
+      }
+      renderVegetablePickers();
+      saveVegetables();
+    });
+  });
+
+  container.querySelectorAll(".staple-toggle-all").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var catName = btn.getAttribute("data-cat");
+      var cat = VEGETABLE_OPTIONS.find(function (c) { return c.name === catName; });
+      if (!cat) return;
+      var allOn = cat.items.every(function (i) { return state.selectedVegetables[i]; });
+      cat.items.forEach(function (i) {
+        if (allOn) { delete state.selectedVegetables[i]; } else { state.selectedVegetables[i] = true; }
+      });
+      renderVegetablePickers();
+      saveVegetables();
+    });
+  });
+}
+
+function renderFruitPickers() {
+  var container = document.getElementById("fruit-pickers");
+  if (!container) return;
+
+  var html = '<div class="staple-category">';
+  html += '<div class="staple-category-header">';
+  html += '<span class="staple-category-title"></span>';
+  html += '<button class="staple-toggle-all" id="fruit-toggle-all">Toggle all</button>';
+  html += '</div>';
+  html += '<div class="staple-grid">';
+  FRUIT_OPTIONS.forEach(function (item) {
+    var on = !!state.selectedFruits[item];
+    html += '<button class="staple-item' + (on ? " on" : "") + '" data-item="' + esc(item) + '">';
+    html += '<span class="staple-check">' + CHECK_SVG + '</span>';
+    html += '<span>' + esc(item) + '</span>';
+    html += '</button>';
+  });
+  html += '</div></div>';
+
+  container.innerHTML = html;
+
+  function saveFruits() {
+    var fruitStr = Object.keys(state.selectedFruits).join(", ") || null;
+    Api.updatePreferences({ preferredFruits: fruitStr });
+  }
+
+  container.querySelectorAll(".staple-item").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var item = btn.getAttribute("data-item");
+      if (state.selectedFruits[item]) {
+        delete state.selectedFruits[item];
+      } else {
+        state.selectedFruits[item] = true;
+      }
+      renderFruitPickers();
+      saveFruits();
+    });
+  });
+
+  var toggleAllBtn = document.getElementById("fruit-toggle-all");
+  if (toggleAllBtn) {
+    toggleAllBtn.addEventListener("click", function () {
+      var allOn = FRUIT_OPTIONS.every(function (f) { return state.selectedFruits[f]; });
+      FRUIT_OPTIONS.forEach(function (f) {
+        if (allOn) { delete state.selectedFruits[f]; } else { state.selectedFruits[f] = true; }
+      });
+      renderFruitPickers();
+      saveFruits();
+    });
+  }
 }
 
 function commitCustomCuisineInput() {
