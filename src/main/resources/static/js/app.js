@@ -234,6 +234,50 @@ function toggleSwapSelection(btn) {
   renderMealGrid(state.mealPlan ? state.mealPlan.meals : []);
 }
 
+/* ---- Swap confirmation with humorous warnings ---- */
+var SWAP_WARNINGS = [
+  "This recipe will vanish into the culinary void. There is no ctrl+Z for dinner.",
+  "Once swapped, this meal is gone forever. Like that leftover pizza you forgot in the back of the fridge.",
+  "Warning: the AI might replace this with something even better. Or weirder. No promises.",
+  "Are you sure? This recipe worked really hard to get here.",
+  "Fun fact: swapped meals end up in a parallel universe where someone else eats them.",
+  "This is a one-way street. The recipe you're about to lose will tell its friends.",
+  "Swapping is permanent. Unlike your New Year's resolution to eat healthy, this one sticks.",
+  "Last chance to appreciate this meal before it gets voted off the island.",
+];
+
+function showSwapConfirm(count, onConfirm) {
+  var warning = SWAP_WARNINGS[Math.floor(Math.random() * SWAP_WARNINGS.length)];
+  var label = count === 1 ? "this meal" : count + " meals";
+
+  var overlay = document.createElement("div");
+  overlay.className = "swap-confirm-overlay";
+  overlay.innerHTML =
+    '<div class="swap-confirm-card">' +
+    '<div style="font-size:2rem;margin-bottom:0.75rem;">🔄</div>' +
+    '<h3 style="font-size:1.1rem;font-weight:600;margin-bottom:0.5rem;">Swap ' + label + '?</h3>' +
+    '<p style="font-size:0.875rem;color:var(--muted-foreground);margin-bottom:1.25rem;line-height:1.5;">' + warning + '</p>' +
+    '<div style="display:flex;gap:0.75rem;justify-content:center;">' +
+    '<button class="btn-swap-cancel" id="swap-confirm-cancel">Keep it</button>' +
+    '<button class="btn-swap" id="swap-confirm-go">Swap anyway</button>' +
+    '</div>' +
+    '</div>';
+
+  document.body.appendChild(overlay);
+
+  document.getElementById("swap-confirm-cancel").addEventListener("click", function () {
+    overlay.remove();
+  });
+  document.getElementById("swap-confirm-go").addEventListener("click", function () {
+    overlay.remove();
+    onConfirm();
+  });
+  // Click outside to dismiss
+  overlay.addEventListener("click", function (e) {
+    if (e.target === overlay) overlay.remove();
+  });
+}
+
 function executeSwap() {
   var slots = Object.keys(state.swapSelections).map(function (key) {
     var parts = key.split("_");
@@ -241,6 +285,12 @@ function executeSwap() {
   });
   if (slots.length === 0) return;
 
+  showSwapConfirm(slots.length, function () {
+    doSwap(slots);
+  });
+}
+
+function doSwap(slots) {
   state.swapping = true;
   renderMealGrid(state.mealPlan ? state.mealPlan.meals : []);
 
@@ -390,23 +440,25 @@ function renderRecipeDetail(recipe) {
   html += "</div>";
   panel.innerHTML = html;
 
-  // Bind swap button
+  // Bind swap button with confirmation
   var swapBtn = document.getElementById("btn-swap-this");
   if (swapBtn && meal) {
     swapBtn.addEventListener("click", function () {
-      swapBtn.textContent = "Swapping...";
-      swapBtn.disabled = true;
-      var slots = [{ dayOfWeek: meal.day, mealType: meal.type.toUpperCase() }];
-      Api.swapMeals(slots).then(function (plan) {
-        state.mealPlan = plan;
-        state.selectedMeal = null;
-        renderMealGrid(plan.meals || []);
-        renderRecipePanel();
-      }).catch(function (err) {
-        console.error("Swap failed:", err);
-        swapBtn.textContent = "Swap This Meal";
-        swapBtn.disabled = false;
-        alert("Failed to swap meal. Please try again.");
+      showSwapConfirm(1, function () {
+        swapBtn.textContent = "Swapping...";
+        swapBtn.disabled = true;
+        var slots = [{ dayOfWeek: meal.day, mealType: meal.type.toUpperCase() }];
+        Api.swapMeals(slots).then(function (plan) {
+          state.mealPlan = plan;
+          state.selectedMeal = null;
+          renderMealGrid(plan.meals || []);
+          renderRecipePanel();
+        }).catch(function (err) {
+          console.error("Swap failed:", err);
+          swapBtn.textContent = "Swap This Meal";
+          swapBtn.disabled = false;
+          alert("Failed to swap meal. Please try again.");
+        });
       });
     });
   }
