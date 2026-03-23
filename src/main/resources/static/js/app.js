@@ -24,6 +24,15 @@ var CUISINE_OPTIONS = [
   "American", "Middle Eastern", "Greek", "Caribbean", "Spanish"
 ];
 
+var PROTEIN_OPTIONS = [
+  { name: "Poultry", items: ["Chicken Breast", "Chicken Thighs", "Ground Chicken", "Turkey Breast", "Ground Turkey"] },
+  { name: "Beef & Pork", items: ["Ground Beef", "Beef Steak", "Beef Stew Meat", "Pork Chops", "Ground Pork", "Bacon", "Sausage"] },
+  { name: "Seafood", items: ["Salmon", "Shrimp", "Tilapia", "Tuna", "Cod"] },
+  { name: "Other Protein", items: ["Eggs", "Tofu", "Tempeh", "Black Beans", "Chickpeas", "Lentils"] }
+];
+
+var CHECK_SVG = '<svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 /* =================================================================
    Application State
    ================================================================= */
@@ -36,6 +45,7 @@ var state = {
   servingSize: 2,
   selectedDiets: {},
   selectedCuisines: {},
+  selectedProteins: {},
   pantrySaving: {},
   generating: false
 };
@@ -564,6 +574,13 @@ function loadPreferences() {
         if (trimmed) state.selectedCuisines[trimmed] = true;
       });
     }
+    state.selectedProteins = {};
+    if (prefs.preferredProteins) {
+      prefs.preferredProteins.split(",").forEach(function (p) {
+        var trimmed = p.trim();
+        if (trimmed) state.selectedProteins[trimmed] = true;
+      });
+    }
     renderPreferences();
   }).catch(function () {
     renderPreferences();
@@ -574,6 +591,7 @@ function renderPreferences() {
   renderServingButtons();
   renderDietChips();
   renderCuisineChips();
+  renderProteinPickers();
 }
 
 function renderServingButtons() {
@@ -654,6 +672,63 @@ function renderCuisineChips() {
       }
     });
   }
+}
+
+function renderProteinPickers() {
+  var container = document.getElementById("protein-pickers");
+  if (!container) return;
+
+  var html = "";
+  PROTEIN_OPTIONS.forEach(function (cat) {
+    html += '<div class="staple-category">';
+    html += '<div class="staple-category-header">';
+    html += '<span class="staple-category-title">' + esc(cat.name) + '</span>';
+    html += '<button class="staple-toggle-all" data-cat="' + esc(cat.name) + '">Toggle all</button>';
+    html += '</div>';
+    html += '<div class="staple-grid">';
+    cat.items.forEach(function (item) {
+      var on = !!state.selectedProteins[item];
+      html += '<button class="staple-item' + (on ? " on" : "") + '" data-item="' + esc(item) + '">';
+      html += '<span class="staple-check">' + CHECK_SVG + '</span>';
+      html += '<span>' + esc(item) + '</span>';
+      html += '</button>';
+    });
+    html += '</div></div>';
+  });
+
+  container.innerHTML = html;
+
+  function saveProteins() {
+    var proteinStr = Object.keys(state.selectedProteins).join(", ") || null;
+    Api.updatePreferences({ preferredProteins: proteinStr });
+  }
+
+  container.querySelectorAll(".staple-item").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var item = btn.getAttribute("data-item");
+      if (state.selectedProteins[item]) {
+        delete state.selectedProteins[item];
+      } else {
+        state.selectedProteins[item] = true;
+      }
+      renderProteinPickers();
+      saveProteins();
+    });
+  });
+
+  container.querySelectorAll(".staple-toggle-all").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var catName = btn.getAttribute("data-cat");
+      var cat = PROTEIN_OPTIONS.find(function (c) { return c.name === catName; });
+      if (!cat) return;
+      var allOn = cat.items.every(function (i) { return state.selectedProteins[i]; });
+      cat.items.forEach(function (i) {
+        if (allOn) { delete state.selectedProteins[i]; } else { state.selectedProteins[i] = true; }
+      });
+      renderProteinPickers();
+      saveProteins();
+    });
+  });
 }
 
 function commitCustomCuisineInput() {
