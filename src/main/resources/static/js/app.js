@@ -39,6 +39,8 @@ var CHECK_SVG = '<svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path
 var state = {
   view: "plan",
   selectedMeal: null,
+  swapSelections: {},  // key: "DAY_TYPE" -> true
+  swapping: false,
   mealPlan: null,
   checkedItems: {},
   groceryItemIndex: {},
@@ -157,7 +159,19 @@ function renderMealGrid(meals) {
   var container = $("#meal-grid");
   var slots = buildSlots(meals);
 
-  var html = '<div class="grid-header">' +
+  // Swap toolbar
+  var swapCount = Object.keys(state.swapSelections).length;
+  var toolbarHtml = '<div class="swap-toolbar" id="swap-toolbar"' +
+    (swapCount > 0 ? '' : ' style="display:none"') + '>' +
+    '<span>' + swapCount + ' meal' + (swapCount !== 1 ? 's' : '') + ' selected</span>' +
+    '<button class="btn-swap" id="btn-swap-selected"' +
+    (state.swapping ? ' disabled' : '') + '>' +
+    (state.swapping ? 'Swapping...' : 'Swap Selected') + '</button>' +
+    '<button class="btn-swap-cancel" id="btn-swap-cancel">Clear</button>' +
+    '</div>';
+
+  var html = toolbarHtml;
+  html += '<div class="grid-header">' +
     "<span>Day</span><span>Breakfast</span><span>Lunch</span><span>Dinner</span>" +
     "</div>";
 
@@ -171,11 +185,16 @@ function renderMealGrid(meals) {
       var sel = state.selectedMeal &&
                 state.selectedMeal.day === slot.day &&
                 state.selectedMeal.type === type;
-      html += '<button class="meal-cell' + (sel ? " selected" : "") + '"' +
+      var swapKey = slot.day + "_" + type.toUpperCase();
+      var swapChecked = !!state.swapSelections[swapKey];
+      html += '<button class="meal-cell' + (sel ? " selected" : "") +
+        (swapChecked ? " swap-checked" : "") +
+        (state.swapping ? " swapping" : "") + '"' +
         ' data-day="' + esc(slot.day) + '"' +
         ' data-type="' + esc(type) + '"' +
         ' data-name="' + esc(name || "\u2014") + '"' +
         ' data-recipe-id="' + (recipeId != null ? recipeId : "") + '">' +
+        (swapChecked ? '<span class="swap-check-icon">&#10003;</span>' : '') +
         esc(name || "\u2014") +
         "</button>";
     });
@@ -185,8 +204,14 @@ function renderMealGrid(meals) {
 
   container.innerHTML = html;
 
+  // Click: select meal to view recipe. Long-press / right-click: toggle swap selection.
   container.querySelectorAll(".meal-cell").forEach(function (btn) {
-    btn.addEventListener("click", function () {
+    btn.addEventListener("click", function (e) {
+      // If shift-click or there are already swap selections, toggle swap mode
+      if (e.shiftKey || Object.keys(state.swapSelections).length > 0) {
+        toggleSwapSelection(btn);
+        return;
+      }
       var rid = btn.getAttribute("data-recipe-id");
       selectMeal(
         btn.getAttribute("data-day"),
@@ -195,6 +220,52 @@ function renderMealGrid(meals) {
         rid ? Number(rid) : null
       );
     });
+  });
+
+  // Swap toolbar buttons
+  var swapBtn = document.getElementById("btn-swap-selected");
+  if (swapBtn) swapBtn.addEventListener("click", executeSwap);
+  var cancelBtn = document.getElementById("btn-swap-cancel");
+  if (cancelBtn) cancelBtn.addEventListener("click", function () {
+    state.swapSelections = {};
+    renderMealGrid(state.mealPlan ? state.mealPlan.meals : []);
+  });
+}
+
+function toggleSwapSelection(btn) {
+  var day = btn.getAttribute("data-day");
+  var type = btn.getAttribute("data-type").toUpperCase();
+  var key = day + "_" + type;
+  if (state.swapSelections[key]) {
+    delete state.swapSelections[key];
+  } else {
+    state.swapSelections[key] = true;
+  }
+  renderMealGrid(state.mealPlan ? state.mealPlan.meals : []);
+}
+
+function executeSwap() {
+  var slots = Object.keys(state.swapSelections).map(function (key) {
+    var parts = key.split("_");
+    return { dayOfWeek: parts[0], mealType: parts[1] };
+  });
+  if (slots.length === 0) return;
+
+  state.swapping = true;
+  renderMealGrid(state.mealPlan ? state.mealPlan.meals : []);
+
+  Api.swapMeals(slots).then(function (plan) {
+    state.mealPlan = plan;
+    state.swapSelections = {};
+    state.swapping = false;
+    state.selectedMeal = null;
+    renderMealGrid(plan.meals || []);
+    renderRecipePanel();
+  }).catch(function (err) {
+    console.error("Swap failed:", err);
+    state.swapping = false;
+    renderMealGrid(state.mealPlan ? state.mealPlan.meals : []);
+    alert("Failed to swap meals. Please try again.");
   });
 }
 
@@ -286,7 +357,28 @@ function renderRecipeDetail(recipe) {
   }
 
   if (recipe.instructions) {
-    var steps = recipe.instructions.split(/\d+\.\s*/).filter(Boolean);
+    /**
+     * Parse instructions into steps. Tries numbered format first (e.g. "1. Do X. 2. Do Y."),
+     * then newline-separated, then sentence-splitting as fallback.
+     */
+    function parseInstructionSteps(text) {
+      if (!text) return [];
+      // Try splitting on numbered steps: "1. " or "1) "
+      var numbered = text.split(/(?:^|\n)\s*\d+[.)]\s+/).filter(Boolean);
+      if (numbered.length > 1) return numbered;
+      // Try splitting on newlines
+      var lines = text.split(/\n+/).map(function (l) { return l.trim(); }).filter(Boolean);
+      if (lines.length > 1) return lines;
+      // Fallback: split on sentence boundaries at action verbs
+      // Split on ". " followed by a capital letter (new sentence)
+      var sentences = text.split(/\.\s+(?=[A-Z])/).filter(Boolean);
+      if (sentences.length > 1) {
+        return sentences.map(function (s) { return s.replace(/\.$/, '').trim(); });
+      }
+      // Last resort: return as single step
+      return [text];
+    }
+    var steps = parseInstructionSteps(recipe.instructions);
     html += "<div>";
     html += '<h3 class="section-label mb-3">Instructions</h3>';
     html += '<ol class="instruction-list">';
@@ -299,8 +391,35 @@ function renderRecipeDetail(recipe) {
     html += "</ol></div>";
   }
 
+  // Swap this meal button
+  html += '<div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);">';
+  html += '<button class="btn-swap-single" id="btn-swap-this">Swap This Meal</button>';
+  html += '<p class="hint" style="margin-top:0.25rem;">Generate a different recipe for this slot</p>';
+  html += '</div>';
+
   html += "</div>";
   panel.innerHTML = html;
+
+  // Bind swap button
+  var swapBtn = document.getElementById("btn-swap-this");
+  if (swapBtn && meal) {
+    swapBtn.addEventListener("click", function () {
+      swapBtn.textContent = "Swapping...";
+      swapBtn.disabled = true;
+      var slots = [{ dayOfWeek: meal.day, mealType: meal.type.toUpperCase() }];
+      Api.swapMeals(slots).then(function (plan) {
+        state.mealPlan = plan;
+        state.selectedMeal = null;
+        renderMealGrid(plan.meals || []);
+        renderRecipePanel();
+      }).catch(function (err) {
+        console.error("Swap failed:", err);
+        swapBtn.textContent = "Swap This Meal";
+        swapBtn.disabled = false;
+        alert("Failed to swap meal. Please try again.");
+      });
+    });
+  }
 }
 
 /* =================================================================

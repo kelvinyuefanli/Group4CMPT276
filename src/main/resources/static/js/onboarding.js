@@ -370,8 +370,9 @@ var Onboarding = (function () {
     });
     html += '</div>';
 
-    html += '<div style="display:flex;align-items:center;gap:0.5rem;margin:1rem 0 0.5rem;">';
-    html += '<h2 style="font-size:1rem;color:var(--foreground);margin:0;">Fruits</h2>';
+    html += '<div class="staple-category">';
+    html += '<div class="staple-category-header">';
+    html += '<span class="staple-category-title">Fruits</span>';
     html += '<button class="staple-toggle-all" id="ob-fruit-toggle-all">Toggle all</button>';
     html += '</div>';
     html += '<div class="staple-grid" id="ob-fruits">';
@@ -382,7 +383,7 @@ var Onboarding = (function () {
       html += '<span>' + esc(item) + '</span>';
       html += '</button>';
     });
-    html += '</div>';
+    html += '</div></div>';
 
     var vegCount = Object.keys(data.vegetables).filter(function (k) { return data.vegetables[k]; }).length;
     var fruitCount = Object.keys(data.fruits).filter(function (k) { return data.fruits[k]; }).length;

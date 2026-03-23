@@ -85,5 +85,12 @@ var Api = (function () {
     deletePantryItem: function (id) {
       return request("/pantry/" + id, { method: "DELETE" });
     },
+
+    swapMeals: function (slots) {
+      return request("/meal-plan/swap", {
+        method: "POST",
+        body: JSON.stringify({ slots: slots }),
+      });
+    },
   };
 })();
