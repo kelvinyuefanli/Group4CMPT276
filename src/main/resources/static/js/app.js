@@ -347,7 +347,28 @@ function renderRecipeDetail(recipe) {
   }
 
   if (recipe.instructions) {
-    var steps = recipe.instructions.split(/\d+\.\s*/).filter(Boolean);
+    /**
+     * Parse instructions into steps. Tries numbered format first (e.g. "1. Do X. 2. Do Y."),
+     * then newline-separated, then sentence-splitting as fallback.
+     */
+    function parseInstructionSteps(text) {
+      if (!text) return [];
+      // Try splitting on numbered steps: "1. " or "1) "
+      var numbered = text.split(/(?:^|\n)\s*\d+[.)]\s+/).filter(Boolean);
+      if (numbered.length > 1) return numbered;
+      // Try splitting on newlines
+      var lines = text.split(/\n+/).map(function (l) { return l.trim(); }).filter(Boolean);
+      if (lines.length > 1) return lines;
+      // Fallback: split on sentence boundaries at action verbs
+      // Split on ". " followed by a capital letter (new sentence)
+      var sentences = text.split(/\.\s+(?=[A-Z])/).filter(Boolean);
+      if (sentences.length > 1) {
+        return sentences.map(function (s) { return s.replace(/\.$/, '').trim(); });
+      }
+      // Last resort: return as single step
+      return [text];
+    }
+    var steps = parseInstructionSteps(recipe.instructions);
     html += "<div>";
     html += '<h3 class="section-label mb-3">Instructions</h3>';
     html += '<ol class="instruction-list">';
