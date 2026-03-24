@@ -1115,3 +1115,53 @@ ul, ol { list-style: none; }
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+.btn-action {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+  flex: 1;
+}
+.btn-action:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
+@media print {
+  .app-header,
+  .plan-sidebar,
+  #main-nav,
+  #auth-header,
+  #grocery-view,
+  #preferences-view,
+  .swap-toolbar,
+  .btn-swap-single,
+  .hint,
+  .recipe-actions,
+  .swap-confirm-overlay {
+    display: none !important;
+  }
+
+  .plan-layout {
+    display: block !important;
+  }
+  .plan-detail {
+    border: none !important;
+    padding: 0 !important;
+  }
+  body {
+    font-size: 12pt;
+    background: white;
+  }
+  .recipe-meta {
+    border-bottom: 1px solid #ccc;
+  }
+}
