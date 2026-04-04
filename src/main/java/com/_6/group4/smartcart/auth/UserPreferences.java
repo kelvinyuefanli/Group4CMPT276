@@ -17,23 +17,32 @@ public class UserPreferences {
     @Column(name = "serving_size", nullable = false)
     private int servingSize = 2;
 
-    @Column(name = "dietary_restrictions")
+    @Column(name = "dietary_restrictions", length = 1000)
     private String dietaryRestrictions;
 
-    @Column
+    @Column(length = 1000)
     private String allergies;
 
-    @Column(name = "preferred_cuisines")
+    @Column(name = "preferred_cuisines", length = 1000)
     private String preferredCuisines;
 
     @Column(name = "rotate_cuisines", nullable = false)
     private boolean rotateCuisines = true;
 
-    @Column(name = "disliked_foods")
+    @Column(name = "disliked_foods", length = 1000)
     private String dislikedFoods;
 
-    @Column(name = "meal_schedule")
+    @Column(name = "meal_schedule", length = 2000)
     private String mealSchedule;
+
+    @Column(name = "preferred_proteins", length = 1000)
+    private String preferredProteins;
+
+    @Column(name = "preferred_vegetables", length = 1000)
+    private String preferredVegetables;
+
+    @Column(name = "preferred_fruits", length = 1000)
+    private String preferredFruits;
 
     @Column(name = "onboarding_completed", nullable = false)
     private boolean onboardingCompleted = false;
@@ -61,6 +70,12 @@ public class UserPreferences {
     public void setDislikedFoods(String dislikedFoods) { this.dislikedFoods = dislikedFoods; }
     public String getMealSchedule() { return mealSchedule; }
     public void setMealSchedule(String mealSchedule) { this.mealSchedule = mealSchedule; }
+    public String getPreferredProteins() { return preferredProteins; }
+    public void setPreferredProteins(String preferredProteins) { this.preferredProteins = preferredProteins; }
+    public String getPreferredVegetables() { return preferredVegetables; }
+    public void setPreferredVegetables(String preferredVegetables) { this.preferredVegetables = preferredVegetables; }
+    public String getPreferredFruits() { return preferredFruits; }
+    public void setPreferredFruits(String preferredFruits) { this.preferredFruits = preferredFruits; }
     public boolean isOnboardingCompleted() { return onboardingCompleted; }
     public void setOnboardingCompleted(boolean onboardingCompleted) { this.onboardingCompleted = onboardingCompleted; }
 }

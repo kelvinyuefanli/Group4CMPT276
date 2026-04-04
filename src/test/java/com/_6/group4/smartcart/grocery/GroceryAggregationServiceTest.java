@@ -207,9 +207,7 @@ class GroceryAggregationServiceTest {
     }
 
     private PantryItem pantryItem(String name) {
-        PantryItem pantryItem = new PantryItem(new User("pantry@example.com", "pw", "Pantry User"), name);
-        pantryItem.setCanonicalName(IngredientNormalizer.canonicalizeName(name));
-        return pantryItem;
+        return new PantryItem(new User("pantry@example.com", "pw", "Pantry User"), name);
     }
 
     private PantryItem pantryItem(String name, Double quantity, String unit) {

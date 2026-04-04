@@ -67,8 +67,27 @@ public class GroceryAggregationService {
         return unitInfo != null ? unitInfo.displayUnit : null;
     }
 
+    /**
+     * Items that should never appear on a grocery list — they are either
+     * not purchasable or are leftover references from Gemini.
+     */
+    private static boolean shouldSkipIngredient(String name) {
+        if (name == null) return true;
+        String lower = name.toLowerCase(Locale.ROOT).trim();
+        // Skip water — nobody buys water by the tablespoon
+        if (lower.equals("water") || lower.startsWith("water ")) return true;
+        // Skip leftover references — these aren't ingredients to buy
+        if (lower.startsWith("leftover")) return true;
+        // Skip vague non-items
+        if (lower.equals("ice") || lower.equals("cooking spray") || lower.equals("non-stick spray")) return true;
+        return false;
+    }
+
     private void addIngredient(Map<BucketKey, GroceryBucket> buckets, RecipeIngredient ingredient) {
         if (ingredient == null || ingredient.getIngredientName() == null || ingredient.getIngredientName().isBlank()) {
+            return;
+        }
+        if (shouldSkipIngredient(ingredient.getIngredientName())) {
             return;
         }
 

@@ -3,12 +3,20 @@
 var Api = (function () {
   var BASE = "/api";
 
+  /** Reads the XSRF-TOKEN cookie set by Spring Security's CookieCsrfTokenRepository. */
+  function getCsrfToken() {
+    var match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
   function request(path, opts) {
     var url = BASE + path;
-    var options = Object.assign(
-      { headers: { "Content-Type": "application/json" } },
-      opts || {}
-    );
+    var headers = { "Content-Type": "application/json" };
+    var token = getCsrfToken();
+    if (token) {
+      headers["X-XSRF-TOKEN"] = token;
+    }
+    var options = Object.assign({ headers: headers }, opts || {});
     return fetch(url, options).then(function (res) {
       if (!res.ok) {
         return res.text().then(function (body) {
@@ -45,6 +53,13 @@ var Api = (function () {
       return request("/grocery-list");
     },
 
+    createInstacartShoppingList: function () {
+      return request("/instacart/shopping-list", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    },
+
     fetchPreferences: function () {
       return request("/preferences");
     },
@@ -76,6 +91,13 @@ var Api = (function () {
 
     deletePantryItem: function (id) {
       return request("/pantry/" + id, { method: "DELETE" });
+    },
+
+    swapMeals: function (slots) {
+      return request("/meal-plan/swap", {
+        method: "POST",
+        body: JSON.stringify({ slots: slots }),
+      });
     },
   };
 })();

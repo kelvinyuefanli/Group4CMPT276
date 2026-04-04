@@ -1,5 +1,5 @@
 /**
- * Instacart Developer Platform integration and cart handoff (scaffold).
+ * Instacart Developer Platform shopping-list handoff.
  */
 package com._6.group4.smartcart.instacart;
 

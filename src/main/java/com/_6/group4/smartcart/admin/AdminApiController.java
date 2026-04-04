@@ -1,5 +1,6 @@
 package com._6.group4.smartcart.admin;
 
+import com._6.group4.smartcart.auth.SessionKeys;
 import com._6.group4.smartcart.auth.User;
 import com._6.group4.smartcart.auth.UserRepository;
 import com._6.group4.smartcart.mealplanning.MealPlanRepository;
@@ -20,8 +21,6 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/admin")
 public class AdminApiController {
 
-    private static final String SESSION_USER_ID = "USER_ID";
-    private static final String SESSION_IS_ADMIN = "IS_ADMIN";
 
     private final UserRepository userRepository;
     private final MealPlanRepository mealPlanRepository;
@@ -36,7 +35,7 @@ public class AdminApiController {
     }
 
     private boolean isAdmin(HttpSession session) {
-        return Boolean.TRUE.equals(session.getAttribute(SESSION_IS_ADMIN));
+        return Boolean.TRUE.equals(session.getAttribute(SessionKeys.IS_ADMIN));
     }
 
     private static final ResponseEntity<?> FORBIDDEN =
@@ -86,7 +85,7 @@ public class AdminApiController {
     }
 
     private Long getSessionUserId(HttpSession session) {
-        Object id = session.getAttribute(SESSION_USER_ID);
+        Object id = session.getAttribute(SessionKeys.USER_ID);
         if (id instanceof Long) return (Long) id;
         if (id instanceof Number) return ((Number) id).longValue();
         return null;

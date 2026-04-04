@@ -1,5 +1,6 @@
 package com._6.group4.smartcart.mealplanning;
 
+import com._6.group4.smartcart.auth.SessionKeys;
 import com._6.group4.smartcart.auth.User;
 import com._6.group4.smartcart.auth.UserPreferences;
 import com._6.group4.smartcart.auth.UserPreferencesRepository;
@@ -17,6 +18,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
@@ -26,7 +29,7 @@ import java.util.*;
 @RequestMapping("/api")
 public class MealPlanApiController {
 
-    private static final String SESSION_USER_ID = "USER_ID";
+    private static final Logger log = LoggerFactory.getLogger(MealPlanApiController.class);
 
     private final GeminiService geminiService;
     private final RecipeRepository recipeRepository;
@@ -54,7 +57,7 @@ public class MealPlanApiController {
 
     /** Resolves the current user ID from session. Returns null if not authenticated. */
     private Long getCurrentUserId(HttpSession session) {
-        Object id = session != null ? session.getAttribute(SESSION_USER_ID) : null;
+        Object id = session != null ? session.getAttribute(SessionKeys.USER_ID) : null;
         if (id instanceof Long) return (Long) id;
         if (id instanceof Number) return ((Number) id).longValue();
         return null;
@@ -141,20 +144,29 @@ public class MealPlanApiController {
 
         GeminiMealPlanDto dto = geminiService.generateMealPlan(
                 pantryIngredients,
-                effectiveServingSize,
                 effectiveDietaryRestrictions,
                 effectiveAllergies,
                 effectiveRotateCuisines,
                 effectivePreferredCuisines,
                 effectiveDislikedFoods,
-                effectiveMealSchedule
+                effectiveMealSchedule,
+                prefs.getPreferredProteins(),
+                prefs.getPreferredVegetables(),
+                prefs.getPreferredFruits(),
+                effectiveServingSize
         );
         if (dto == null || dto.meals() == null || dto.meals().isEmpty()) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Could not generate a complete meal plan for the selected preferences. Please try again."));
+            String errorMsg = geminiService.getLastErrorMessage();
+            if (errorMsg == null) errorMsg = "Could not generate a meal plan. Please try again.";
+            return ResponseEntity.badRequest().body(Map.of("error", errorMsg));
         }
 
-        User user = userRepository.findById(userId).orElseThrow();
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "User account not found. Please log in again."));
+        }
+        User user = userOpt.get();
         LocalDate monday = LocalDate.now().with(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY));
         MealPlan plan = new MealPlan(user, monday);
         Set<MealPlanGenerationSupport.MealSlot> expectedSlots =
@@ -167,21 +179,140 @@ public class MealPlanApiController {
                 .body(Map.of("error", "Generated plan was incomplete for the selected preferences. Please try again."));
         }
 
+        // Parse allergen list for post-generation verification
+        Set<String> allergenSet = parseAllergenSet(effectiveAllergies);
+        List<String> removedMeals = new ArrayList<>();
+
         for (GeminiMealPlanDto.MealEntry entry : MealPlanGenerationSupport.buildMealPlan(extracted.acceptedMeals()).meals()) {
             if (entry.recipe() == null) continue;
-            Recipe recipe = persistRecipe(entry.recipe(), effectiveServingSize);
             try {
                 DayOfWeek day = DayOfWeek.valueOf(entry.dayOfWeek());
                 MealType meal = MealType.valueOf(entry.mealType());
-                MealPlanRecipe mpr = new MealPlanRecipe(plan, recipe, day, meal);
-                plan.getRecipes().add(mpr);
+
+                // Allergy verification: check recipe ingredients against allergen list
+                if (!allergenSet.isEmpty() && recipeContainsAllergen(entry.recipe(), allergenSet)) {
+                    log.warn("Allergy detected in {} {} recipe '{}' — attempting re-generation",
+                            entry.dayOfWeek(), entry.mealType(),
+                            entry.recipe().title());
+
+                    // Re-generate this single slot with a stronger allergy prompt
+                    GeminiRecipeDto replacement = geminiService.generateSingleMeal(
+                            entry.dayOfWeek(), entry.mealType(),
+                            effectiveAllergies, effectiveDietaryRestrictions, effectivePreferredCuisines);
+
+                    if (replacement != null && !recipeContainsAllergen(replacement, allergenSet)) {
+                        Recipe recipe = persistRecipe(replacement, effectiveServingSize);
+                        plan.getRecipes().add(new MealPlanRecipe(plan, recipe, day, meal));
+                    } else {
+                        // Re-generation also failed — remove this slot entirely
+                        removedMeals.add(entry.dayOfWeek() + " " + entry.mealType());
+                        log.warn("Re-generation still contained allergen for {} {} — slot removed",
+                                entry.dayOfWeek(), entry.mealType());
+                    }
+                } else {
+                    Recipe recipe = persistRecipe(entry.recipe(), effectiveServingSize);
+                    plan.getRecipes().add(new MealPlanRecipe(plan, recipe, day, meal));
+                }
             } catch (IllegalArgumentException ignored) {
                 // skip entries with invalid day/meal values from Gemini
             }
         }
 
         mealPlanRepository.save(plan);
-        return ResponseEntity.ok(toMealPlanResponse(plan));
+        Map<String, Object> response = toMealPlanResponse(plan);
+        if (!removedMeals.isEmpty()) {
+            response.put("allergyWarnings", removedMeals.stream()
+                    .map(slot -> slot + " was removed because it contained an allergen")
+                    .toList());
+        }
+        return ResponseEntity.ok(response);
+    }
+
+    // ---- Meal Swap --------------------------------------------------------
+
+    /**
+     * Swap one or more meal slots in the current plan with freshly generated recipes.
+     * Accepts: { "slots": [{"dayOfWeek":"MONDAY","mealType":"DINNER"}, ...] }
+     */
+    @PostMapping("/meal-plan/swap")
+    @Transactional
+    public ResponseEntity<?> swapMeals(@RequestBody Map<String, Object> body, HttpSession session) {
+        Long userId = getCurrentUserId(session);
+        if (userId == null) return UNAUTHORIZED;
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, String>> slots = (List<Map<String, String>>) body.get("slots");
+        if (slots == null || slots.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "No meal slots specified"));
+        }
+
+        Optional<MealPlan> planOpt = mealPlanRepository.findTopByUserIdOrderByCreatedAtDesc(userId);
+        if (planOpt.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "No meal plan exists. Generate one first."));
+        }
+        MealPlan plan = planOpt.get();
+
+        UserPreferences prefs = preferencesRepository.findByUserId(userId).orElse(null);
+        String allergies = prefs != null ? prefs.getAllergies() : null;
+        String dietaryRestrictions = prefs != null ? prefs.getDietaryRestrictions() : null;
+        String preferredCuisines = prefs != null ? prefs.getPreferredCuisines() : null;
+        int effectiveServingSize = prefs != null ? prefs.getServingSize() : 2;
+
+        Set<String> allergenSet = parseAllergenSet(allergies);
+        List<String> swapped = new ArrayList<>();
+        List<String> failed = new ArrayList<>();
+
+        for (Map<String, String> slot : slots) {
+            String dayStr = slot.get("dayOfWeek");
+            String mealStr = slot.get("mealType");
+            if (dayStr == null || mealStr == null) continue;
+
+            try {
+                DayOfWeek day = DayOfWeek.valueOf(dayStr);
+                MealType meal = MealType.valueOf(mealStr);
+
+                // Generate a replacement recipe
+                GeminiRecipeDto replacement = geminiService.generateSingleMeal(
+                        dayStr, mealStr, allergies, dietaryRestrictions, preferredCuisines);
+
+                if (replacement == null) {
+                    failed.add(dayStr + " " + mealStr);
+                    continue;
+                }
+
+                // Allergy check on the replacement
+                if (!allergenSet.isEmpty() && recipeContainsAllergen(replacement, allergenSet)) {
+                    // Try once more
+                    replacement = geminiService.generateSingleMeal(
+                            dayStr, mealStr, allergies, dietaryRestrictions, preferredCuisines);
+                    if (replacement == null || recipeContainsAllergen(replacement, allergenSet)) {
+                        failed.add(dayStr + " " + mealStr + " (allergen detected)");
+                        continue;
+                    }
+                }
+
+                Recipe newRecipe = persistRecipe(replacement, effectiveServingSize);
+
+                // Remove old recipe for this slot
+                plan.getRecipes().removeIf(mpr ->
+                        mpr.getDayOfWeek() == day && mpr.getMealType() == meal);
+
+                // Add new recipe
+                plan.getRecipes().add(new MealPlanRecipe(plan, newRecipe, day, meal));
+                swapped.add(dayStr + " " + mealStr);
+
+            } catch (IllegalArgumentException e) {
+                failed.add(dayStr + " " + mealStr + " (invalid)");
+            }
+        }
+
+        mealPlanRepository.save(plan);
+        Map<String, Object> response = toMealPlanResponse(plan);
+        response.put("swapped", swapped);
+        if (!failed.isEmpty()) {
+            response.put("swapFailed", failed);
+        }
+        return ResponseEntity.ok(response);
     }
 
     // ---- Recipes ----------------------------------------------------------
@@ -228,6 +359,9 @@ public class MealPlanApiController {
                     resp.put("rotateCuisines", p.isRotateCuisines());
                     resp.put("dislikedFoods", p.getDislikedFoods());
                     resp.put("mealSchedule", p.getMealSchedule());
+                    resp.put("preferredProteins", p.getPreferredProteins());
+                    resp.put("preferredVegetables", p.getPreferredVegetables());
+                    resp.put("preferredFruits", p.getPreferredFruits());
                     resp.put("onboardingCompleted", p.isOnboardingCompleted());
                     return ResponseEntity.ok(resp);
                 })
@@ -239,37 +373,73 @@ public class MealPlanApiController {
     public ResponseEntity<?> updatePreferences(@RequestBody Map<String, Object> body, HttpSession session) {
         Long userId = getCurrentUserId(session);
         if (userId == null) return UNAUTHORIZED;
+
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "User account not found."));
+        }
+
         UserPreferences prefs = preferencesRepository.findByUserId(userId)
-                .orElseGet(() -> {
-                    User user = userRepository.findById(userId).orElseThrow();
-                    return preferencesRepository.save(new UserPreferences(user));
-                });
-        if (body.containsKey("servingSize")) {
-            prefs.setServingSize(((Number) body.get("servingSize")).intValue());
+                .orElseGet(() -> preferencesRepository.save(new UserPreferences(userOpt.get())));
+
+        try {
+            if (body.containsKey("servingSize")) {
+                Object val = body.get("servingSize");
+                if (val instanceof Number n) {
+                    prefs.setServingSize(n.intValue());
+                } else {
+                    return ResponseEntity.badRequest()
+                            .body(Map.of("error", "servingSize must be a number"));
+                }
+            }
+            if (body.containsKey("dietaryRestrictions")) {
+                prefs.setDietaryRestrictions(toString(body.get("dietaryRestrictions")));
+            }
+            if (body.containsKey("allergies")) {
+                prefs.setAllergies(toString(body.get("allergies")));
+            }
+            if (body.containsKey("preferredCuisines")) {
+                prefs.setPreferredCuisines(toString(body.get("preferredCuisines")));
+            }
+            if (body.containsKey("rotateCuisines")) {
+                Object val = body.get("rotateCuisines");
+                if (val instanceof Boolean b) {
+                    prefs.setRotateCuisines(b);
+                }
+            }
+            if (body.containsKey("dislikedFoods")) {
+                prefs.setDislikedFoods(toString(body.get("dislikedFoods")));
+            }
+            if (body.containsKey("mealSchedule")) {
+                prefs.setMealSchedule(toString(body.get("mealSchedule")));
+            }
+            if (body.containsKey("preferredProteins")) {
+                prefs.setPreferredProteins(toString(body.get("preferredProteins")));
+            }
+            if (body.containsKey("preferredVegetables")) {
+                prefs.setPreferredVegetables(toString(body.get("preferredVegetables")));
+            }
+            if (body.containsKey("preferredFruits")) {
+                prefs.setPreferredFruits(toString(body.get("preferredFruits")));
+            }
+            if (body.containsKey("onboardingCompleted")) {
+                Object val = body.get("onboardingCompleted");
+                if (val instanceof Boolean b) {
+                    prefs.setOnboardingCompleted(b);
+                }
+            }
+        } catch (ClassCastException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Invalid field type in preferences update"));
         }
-        if (body.containsKey("dietaryRestrictions")) {
-            prefs.setDietaryRestrictions((String) body.get("dietaryRestrictions"));
-        }
-        if (body.containsKey("allergies")) {
-            prefs.setAllergies((String) body.get("allergies"));
-        }
-        if (body.containsKey("preferredCuisines")) {
-            prefs.setPreferredCuisines((String) body.get("preferredCuisines"));
-        }
-        if (body.containsKey("rotateCuisines")) {
-            prefs.setRotateCuisines((Boolean) body.get("rotateCuisines"));
-        }
-        if (body.containsKey("dislikedFoods")) {
-            prefs.setDislikedFoods((String) body.get("dislikedFoods"));
-        }
-        if (body.containsKey("mealSchedule")) {
-            prefs.setMealSchedule((String) body.get("mealSchedule"));
-        }
-        if (body.containsKey("onboardingCompleted")) {
-            prefs.setOnboardingCompleted((Boolean) body.get("onboardingCompleted"));
-        }
+
         preferencesRepository.save(prefs);
         return ResponseEntity.ok(Map.of("status", "updated"));
+    }
+
+    private static String toString(Object val) {
+        return val == null ? null : val.toString();
     }
 
     // ---- Pantry -----------------------------------------------------------
@@ -299,7 +469,12 @@ public class MealPlanApiController {
     public ResponseEntity<?> savePantry(@RequestBody Map<String, Object> body, HttpSession session) {
         Long userId = getCurrentUserId(session);
         if (userId == null) return UNAUTHORIZED;
-        User user = userRepository.findById(userId).orElseThrow();
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "User account not found."));
+        }
+        User user = userOpt.get();
         List<String> itemNames = (List<String>) body.getOrDefault("items", List.of());
 
         pantryItemRepository.deleteAllByUserId(userId);
@@ -308,7 +483,6 @@ public class MealPlanApiController {
         for (String name : itemNames) {
             if (name != null && !name.isBlank()) {
                 PantryItem pantryItem = new PantryItem(user, name.trim());
-                pantryItem.setCanonicalName(IngredientNormalizer.canonicalizeName(name));
                 saved.add(pantryItemRepository.save(pantryItem));
             }
         }
@@ -335,17 +509,17 @@ public class MealPlanApiController {
         String normalizedUnit = GroceryAggregationService.normalizeStoredUnit(body.unit());
         Double requestedQuantity = body.quantity();
         boolean numericRequest = requestedQuantity != null || normalizedUnit != null;
+        List<PantryItem> existingItems = pantryItemRepository.findAllByUserIdOrderByIngredientName(userId);
 
         if (!covered) {
-            removePantryEntry(userId, canonicalName, normalizedUnit, numericRequest);
+            removePantryEntry(existingItems, canonicalName, normalizedUnit, numericRequest);
             return ResponseEntity.ok(Map.of("status", "removed"));
         }
 
         User user = userRepository.findById(userId).orElseThrow();
         if (!numericRequest) {
-            pantryItemRepository.deleteAllByUserIdAndCanonicalName(userId, canonicalName);
+            removeAllPantryEntries(existingItems, canonicalName);
             PantryItem pantryItem = new PantryItem(user, displayName != null ? displayName : canonicalName);
-            pantryItem.setCanonicalName(canonicalName);
             pantryItem.setQuantity(null);
             pantryItem.setUnit(null);
             pantryItemRepository.save(pantryItem);
@@ -353,17 +527,21 @@ public class MealPlanApiController {
         }
 
         if (requestedQuantity == null || requestedQuantity <= 0d) {
-            removePantryEntry(userId, canonicalName, normalizedUnit, true);
+            removePantryEntry(existingItems, canonicalName, normalizedUnit, true);
             return ResponseEntity.ok(Map.of("status", "removed"));
         }
 
-        pantryItemRepository.deleteAllByUserIdAndCanonicalNameAndQuantityIsNull(userId, canonicalName);
+        removeBooleanPantryEntries(existingItems, canonicalName);
 
-        PantryItem pantryItem = findNumericPantryItem(userId, canonicalName, normalizedUnit)
-                .orElseGet(() -> new PantryItem(user, displayName != null ? displayName : canonicalName));
+        List<PantryItem> numericMatches = findNumericPantryItems(existingItems, canonicalName, normalizedUnit);
+        PantryItem pantryItem = numericMatches.isEmpty()
+                ? new PantryItem(user, displayName != null ? displayName : canonicalName)
+                : numericMatches.get(0);
+        if (numericMatches.size() > 1) {
+            pantryItemRepository.deleteAll(numericMatches.subList(1, numericMatches.size()));
+        }
         pantryItem.setUser(user);
         pantryItem.setIngredientName(displayName != null ? displayName : canonicalName);
-        pantryItem.setCanonicalName(canonicalName);
         pantryItem.setQuantity(requestedQuantity);
         pantryItem.setUnit(normalizedUnit);
         pantryItemRepository.save(pantryItem);
@@ -429,23 +607,61 @@ public class MealPlanApiController {
         return trimmed.isBlank() ? null : trimmed;
     }
 
-    private Optional<PantryItem> findNumericPantryItem(Long userId, String canonicalName, String unit) {
-        if (unit == null) {
-            return pantryItemRepository.findFirstByUserIdAndCanonicalNameAndUnitIsNullAndQuantityIsNotNull(userId, canonicalName);
+    private List<PantryItem> findNumericPantryItems(Collection<PantryItem> pantryItems, String canonicalName, String unit) {
+        List<PantryItem> matches = new ArrayList<>();
+        for (PantryItem pantryItem : pantryItems) {
+            if (pantryItem.getQuantity() == null) {
+                continue;
+            }
+            if (!Objects.equals(canonicalName, pantryItem.getCanonicalName())) {
+                continue;
+            }
+            if (sameNormalizedUnit(pantryItem.getUnit(), unit)) {
+                matches.add(pantryItem);
+            }
         }
-        return pantryItemRepository.findFirstByUserIdAndCanonicalNameAndUnitAndQuantityIsNotNull(userId, canonicalName, unit);
+        return matches;
     }
 
-    private void removePantryEntry(Long userId, String canonicalName, String unit, boolean numericRequest) {
-        if (numericRequest) {
-            if (unit == null) {
-                pantryItemRepository.deleteAllByUserIdAndCanonicalNameAndUnitIsNullAndQuantityIsNotNull(userId, canonicalName);
-            } else {
-                pantryItemRepository.deleteAllByUserIdAndCanonicalNameAndUnitAndQuantityIsNotNull(userId, canonicalName, unit);
+    private void removePantryEntry(Collection<PantryItem> pantryItems, String canonicalName, String unit, boolean numericRequest) {
+        List<PantryItem> matches = new ArrayList<>();
+        for (PantryItem pantryItem : pantryItems) {
+            if (!Objects.equals(canonicalName, pantryItem.getCanonicalName())) {
+                continue;
             }
-            return;
+            if (!numericRequest && pantryItem.getQuantity() == null) {
+                matches.add(pantryItem);
+                continue;
+            }
+            if (numericRequest && pantryItem.getQuantity() != null && sameNormalizedUnit(pantryItem.getUnit(), unit)) {
+                matches.add(pantryItem);
+            }
         }
-        pantryItemRepository.deleteAllByUserIdAndCanonicalNameAndQuantityIsNull(userId, canonicalName);
+        if (!matches.isEmpty()) {
+            pantryItemRepository.deleteAll(matches);
+        }
+    }
+
+    private void removeBooleanPantryEntries(Collection<PantryItem> pantryItems, String canonicalName) {
+        removePantryEntry(pantryItems, canonicalName, null, false);
+    }
+
+    private void removeAllPantryEntries(Collection<PantryItem> pantryItems, String canonicalName) {
+        List<PantryItem> matches = new ArrayList<>();
+        for (PantryItem pantryItem : pantryItems) {
+            if (Objects.equals(canonicalName, pantryItem.getCanonicalName())) {
+                matches.add(pantryItem);
+            }
+        }
+        if (!matches.isEmpty()) {
+            pantryItemRepository.deleteAll(matches);
+        }
+    }
+
+    private boolean sameNormalizedUnit(String left, String right) {
+        String normalizedLeft = GroceryAggregationService.normalizeStoredUnit(left);
+        String normalizedRight = GroceryAggregationService.normalizeStoredUnit(right);
+        return Objects.equals(normalizedLeft, normalizedRight);
     }
 
     private Map<String, Object> toMealPlanResponse(MealPlan plan) {
@@ -483,5 +699,42 @@ public class MealPlanApiController {
         resp.put("instructions", r.getInstructions());
         resp.put("ingredients", ings);
         return resp;
+    }
+
+    // ---- Allergy Verification -----------------------------------------------
+
+    /**
+     * Parses the user's allergy string into a set of lowercase allergen keywords.
+     * The allergy field is typically comma-separated (e.g., "Peanuts, Tree Nuts, Shellfish").
+     */
+    static Set<String> parseAllergenSet(String allergies) {
+        if (allergies == null || allergies.isBlank()) return Set.of();
+        Set<String> result = new HashSet<>();
+        for (String allergen : allergies.split("[,;]+")) {
+            String trimmed = allergen.trim().toLowerCase();
+            if (!trimmed.isEmpty()) {
+                result.add(trimmed);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Checks if any ingredient in the recipe contains an allergen keyword.
+     * Uses substring matching to catch derivatives (e.g., "peanut butter" matches "peanut").
+     */
+    static boolean recipeContainsAllergen(GeminiRecipeDto recipe, Set<String> allergens) {
+        if (recipe.ingredients() == null || allergens.isEmpty()) return false;
+        for (GeminiRecipeDto.IngredientDto ing : recipe.normalizedIngredients()) {
+            String ingredientName = ing.safeName();
+            if (ingredientName == null) continue;
+            String lower = ingredientName.toLowerCase();
+            for (String allergen : allergens) {
+                if (lower.contains(allergen)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

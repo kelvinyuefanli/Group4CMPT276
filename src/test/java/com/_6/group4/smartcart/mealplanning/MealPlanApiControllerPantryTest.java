@@ -14,6 +14,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpSession;
 
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -60,8 +62,7 @@ class MealPlanApiControllerPantryTest {
         Long userId = 42L;
         User user = new User("user@example.com", "pw", "User");
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-        when(pantryItemRepository.findFirstByUserIdAndCanonicalNameAndUnitAndQuantityIsNotNull(userId, "olive oil", "cup"))
-                .thenReturn(Optional.empty());
+        when(pantryItemRepository.findAllByUserIdOrderByIngredientName(userId)).thenReturn(Collections.emptyList());
         when(pantryItemRepository.save(any(PantryItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         ResponseEntity<?> response = controller.updatePantryItem(
@@ -70,7 +71,6 @@ class MealPlanApiControllerPantryTest {
         );
 
         assertEquals(200, response.getStatusCode().value());
-        verify(pantryItemRepository).deleteAllByUserIdAndCanonicalNameAndQuantityIsNull(userId, "olive oil");
         verify(pantryItemRepository).save(any(PantryItem.class));
         verifySavedNumericItem(user, 1.5, "cup");
     }
@@ -78,6 +78,8 @@ class MealPlanApiControllerPantryTest {
     @Test
     void updatePantryItem_clearingInlineAmountRemovesNumericPantryEntry() {
         Long userId = 42L;
+        PantryItem existing = pantryItem("Olive Oil", 1.0, "cup");
+        when(pantryItemRepository.findAllByUserIdOrderByIngredientName(userId)).thenReturn(List.of(existing));
 
         ResponseEntity<?> response = controller.updatePantryItem(
                 new PantryItemUpdateRequest("Olive Oil", "olive oil", 0d, "cup", false),
@@ -85,7 +87,9 @@ class MealPlanApiControllerPantryTest {
         );
 
         assertEquals(200, response.getStatusCode().value());
-        verify(pantryItemRepository).deleteAllByUserIdAndCanonicalNameAndUnitAndQuantityIsNotNull(userId, "olive oil", "cup");
+        verify(pantryItemRepository).deleteAll(org.mockito.ArgumentMatchers.argThat(items ->
+                items instanceof Collection<?> collection && collection.size() == 1 && collection.contains(existing)
+        ));
         verify(pantryItemRepository, never()).save(any(PantryItem.class));
     }
 
@@ -181,7 +185,6 @@ class MealPlanApiControllerPantryTest {
 
     private PantryItem pantryItem(String name, Double quantity, String unit) {
         PantryItem pantryItem = new PantryItem(new User("pantry@example.com", "pw", "Pantry"), name);
-        pantryItem.setCanonicalName("olive oil");
         pantryItem.setQuantity(quantity);
         pantryItem.setUnit(unit);
         return pantryItem;

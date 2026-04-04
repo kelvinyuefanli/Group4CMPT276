@@ -7,10 +7,28 @@
   <link rel="icon" href="/favicon.ico" />
   <meta name="description" content="SmartCart – AI-Powered Meal Planning & Grocery Integration" />
   <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    #loading-screen {
+      position: fixed; inset: 0; z-index: 9999;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: var(--background);
+    }
+    #loading-screen .logo { font-size: 1.75rem; margin-bottom: 1rem; }
+    .spinner {
+      width: 28px; height: 28px; border: 3px solid var(--border);
+      border-top-color: var(--primary); border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
 </head>
 <body>
+  <div id="loading-screen">
+    <div class="logo">Smart<span class="logo-accent">Cart</span></div>
+    <div class="spinner"></div>
+  </div>
   <div id="onboarding-overlay" class="onboarding-overlay" hidden></div>
-  <div class="app">
+  <div class="app" style="display:none;">
 
     <!-- ============================================================ -->
     <!-- Header                                                        -->
@@ -44,6 +62,7 @@
             <p class="text-sm text-muted" id="plan-subtitle">
               No meal plan yet &mdash; generate one from Preferences
             </p>
+            <button class="btn-action" id="btn-export-week" style="margin-top:0.5rem;">Export Week</button>
           </div>
           <div id="meal-grid" class="meal-grid"></div>
         </div>
@@ -96,6 +115,24 @@
               <label class="section-label mb-2" style="display:block;">Preferred Cuisines</label>
               <div class="chip-group" id="cuisine-chips"></div>
               <input class="text-input" id="custom-cuisine-input" placeholder="e.g. Brazilian, Peruvian, Filipino, BBQ..." style="margin-top:0.5rem;" />
+            </div>
+
+            <!-- Weekly Proteins -->
+            <div class="pref-section">
+              <label class="section-label mb-2" style="display:block;">Weekly Proteins</label>
+              <div id="protein-pickers"></div>
+            </div>
+
+            <!-- Weekly Vegetables -->
+            <div class="pref-section">
+              <label class="section-label mb-2" style="display:block;">Weekly Vegetables</label>
+              <div id="vegetable-pickers"></div>
+            </div>
+
+            <!-- Weekly Fruits -->
+            <div class="pref-section">
+              <label class="section-label mb-2" style="display:block;">Weekly Fruits</label>
+              <div id="fruit-pickers"></div>
             </div>
 
             <!-- Generate -->

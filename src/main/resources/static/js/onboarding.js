@@ -2,7 +2,7 @@
 
 var Onboarding = (function () {
 
-  var TOTAL_STEPS = 9;
+  var TOTAL_STEPS = 11;
 
   var DIET_OPTIONS = [
     "Vegetarian", "Vegan", "Gluten-Free", "Dairy-Free",
@@ -23,6 +23,27 @@ var Onboarding = (function () {
   var DAYS = ["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY"];
   var DAY_SHORT = { MONDAY:"Mon", TUESDAY:"Tue", WEDNESDAY:"Wed", THURSDAY:"Thu", FRIDAY:"Fri", SATURDAY:"Sat", SUNDAY:"Sun" };
   var MEALS = ["BREAKFAST","LUNCH","DINNER"];
+
+  var PROTEIN_OPTIONS = [
+    { name: "Poultry", items: ["Chicken Breast", "Chicken Thighs", "Ground Chicken", "Turkey Breast", "Ground Turkey"] },
+    { name: "Beef & Pork", items: ["Ground Beef", "Beef Steak", "Beef Stew Meat", "Pork Chops", "Ground Pork", "Bacon", "Sausage"] },
+    { name: "Seafood", items: ["Salmon", "Shrimp", "Tilapia", "Tuna", "Cod"] },
+    { name: "Other Protein", items: ["Eggs", "Tofu", "Tempeh", "Black Beans", "Chickpeas", "Lentils"] }
+  ];
+
+  var VEGETABLE_OPTIONS = [
+    { name: "Leafy Greens", items: ["Spinach", "Kale", "Romaine Lettuce", "Mixed Greens"] },
+    { name: "Cruciferous", items: ["Broccoli", "Cauliflower", "Brussels Sprouts", "Cabbage"] },
+    { name: "Everyday Veggies", items: ["Bell Peppers", "Zucchini", "Carrots", "Tomatoes", "Cucumber", "Green Beans", "Corn", "Peas"] },
+    { name: "Root & Starchy", items: ["Sweet Potatoes", "Potatoes", "Butternut Squash", "Beets"] },
+    { name: "Alliums & Aromatics", items: ["Mushrooms", "Asparagus", "Celery", "Eggplant"] }
+  ];
+
+  var FRUIT_OPTIONS = [
+    "Bananas", "Apples", "Berries", "Oranges", "Grapes",
+    "Strawberries", "Blueberries", "Avocado", "Mango", "Pineapple",
+    "Peaches", "Pears", "Lemons", "Limes", "Watermelon"
+  ];
 
   var PANTRY_CATEGORIES = [
     { name: "Oils & Condiments", preChecked: true, items: [
@@ -53,7 +74,10 @@ var Onboarding = (function () {
     rotateCuisines: true,
     dislikedFoods: [],
     schedule: {},
-    pantry: {}
+    pantry: {},
+    proteins: {},
+    vegetables: {},
+    fruits: {}
   };
 
   function init() {
@@ -128,7 +152,9 @@ var Onboarding = (function () {
       case 6: return stepDislikes();
       case 7: return stepSchedule();
       case 8: return stepPantry();
-      case 9: return stepReview();
+      case 9: return stepProteins();
+      case 10: return stepVeggiesFruits();
+      case 11: return stepReview();
       default: return "";
     }
   }
@@ -194,6 +220,7 @@ var Onboarding = (function () {
   function stepCuisines() {
     var html = '<h1 class="onboarding-title">What cuisines do you enjoy?</h1>';
     html += '<p class="onboarding-subtitle">Select a few or type your own below. Press Enter to add.</p>';
+    html += '<div style="text-align:center;margin-bottom:0.5rem;"><button class="staple-toggle-all" id="ob-cuisine-toggle-all">Select All</button></div>';
     html += '<div class="chip-group" style="justify-content:center;" id="ob-cuisines">';
     CUISINE_OPTIONS.forEach(function (c) {
       html += '<button class="chip' + (data.cuisines[c] ? " active" : "") + '" data-val="' + esc(c) + '">' + esc(c) + '</button>';
@@ -290,7 +317,82 @@ var Onboarding = (function () {
     return html;
   }
 
-  /* Step 9: Review */
+  /* Step 9: Weekly Proteins */
+  function stepProteins() {
+    var html = '<h1 class="onboarding-title">What proteins do you want this week?</h1>';
+    html += '<p class="onboarding-subtitle">Pick 2-3 proteins to buy. We\'ll plan portions across your meals so nothing goes to waste.</p>';
+
+    PROTEIN_OPTIONS.forEach(function (cat) {
+      html += '<div class="staple-category">';
+      html += '<div class="staple-category-header">';
+      html += '<span class="staple-category-title">' + esc(cat.name) + '</span>';
+      html += '<button class="staple-toggle-all" data-cat="' + esc(cat.name) + '" data-store="proteins">Toggle all</button>';
+      html += '</div>';
+      html += '<div class="staple-grid">';
+      cat.items.forEach(function (item) {
+        var on = data.proteins[item];
+        html += '<button class="staple-item' + (on ? " on" : "") + '" data-item="' + esc(item) + '">';
+        html += '<span class="staple-check">' + CHECK_SVG + '</span>';
+        html += '<span>' + esc(item) + '</span>';
+        html += '</button>';
+      });
+      html += '</div></div>';
+    });
+
+    var count = Object.keys(data.proteins).filter(function (k) { return data.proteins[k]; }).length;
+    html += '<p class="hint" style="text-align:center;margin-top:0.5rem;">' + count + ' selected — we recommend 2-3 proteins per week</p>';
+    html += nav("Back", "Next");
+    return html;
+  }
+
+  /* Step 10: Weekly Vegetables & Fruits */
+  function stepVeggiesFruits() {
+    var html = '<h1 class="onboarding-title">Which vegetables and fruits to buy?</h1>';
+    html += '<p class="onboarding-subtitle">Pick 4-6 vegetables and 2-3 fruits. We\'ll plan recipes so each item is used across 3-4 meals.</p>';
+
+    html += '<h2 style="font-size:1rem;margin:1rem 0 0.5rem;color:var(--foreground);">Vegetables</h2>';
+    html += '<div id="ob-veggies">';
+    VEGETABLE_OPTIONS.forEach(function (cat) {
+      html += '<div class="staple-category">';
+      html += '<div class="staple-category-header">';
+      html += '<span class="staple-category-title">' + esc(cat.name) + '</span>';
+      html += '<button class="staple-toggle-all" data-cat="' + esc(cat.name) + '" data-store="vegetables">Toggle all</button>';
+      html += '</div>';
+      html += '<div class="staple-grid">';
+      cat.items.forEach(function (item) {
+        var on = data.vegetables[item];
+        html += '<button class="staple-item' + (on ? " on" : "") + '" data-item="' + esc(item) + '">';
+        html += '<span class="staple-check">' + CHECK_SVG + '</span>';
+        html += '<span>' + esc(item) + '</span>';
+        html += '</button>';
+      });
+      html += '</div></div>';
+    });
+    html += '</div>';
+
+    html += '<div class="staple-category">';
+    html += '<div class="staple-category-header">';
+    html += '<span class="staple-category-title">Fruits</span>';
+    html += '<button class="staple-toggle-all" id="ob-fruit-toggle-all">Toggle all</button>';
+    html += '</div>';
+    html += '<div class="staple-grid" id="ob-fruits">';
+    FRUIT_OPTIONS.forEach(function (item) {
+      var on = data.fruits[item];
+      html += '<button class="staple-item' + (on ? " on" : "") + '" data-item="' + esc(item) + '">';
+      html += '<span class="staple-check">' + CHECK_SVG + '</span>';
+      html += '<span>' + esc(item) + '</span>';
+      html += '</button>';
+    });
+    html += '</div></div>';
+
+    var vegCount = Object.keys(data.vegetables).filter(function (k) { return data.vegetables[k]; }).length;
+    var fruitCount = Object.keys(data.fruits).filter(function (k) { return data.fruits[k]; }).length;
+    html += '<p class="hint" style="text-align:center;margin-top:0.5rem;">' + vegCount + ' vegetables, ' + fruitCount + ' fruits selected</p>';
+    html += nav("Back", "Next");
+    return html;
+  }
+
+  /* Step 11: Review */
   function stepReview() {
     var html = '<h1 class="onboarding-title">Here\'s your profile</h1>';
     html += '<p class="onboarding-subtitle">Review and create your first meal plan.</p>';
@@ -318,6 +420,17 @@ var Onboarding = (function () {
     var pantryItems = Object.keys(data.pantry).filter(function (k) { return data.pantry[k]; });
     var pantryText = pantryItems.length ? pantryItems.length + " items" : "None";
     html += reviewSection("Pantry Staples", pantryText, 8);
+
+    var proteinList = Object.keys(data.proteins).filter(function (k) { return data.proteins[k]; });
+    html += reviewSection("Weekly Proteins", proteinList.length ? proteinList.join(", ") : "Any", 9);
+
+    var vegList = Object.keys(data.vegetables).filter(function (k) { return data.vegetables[k]; });
+    var fruitList = Object.keys(data.fruits).filter(function (k) { return data.fruits[k]; });
+    var produceText = "";
+    if (vegList.length) produceText += vegList.length + " vegetables";
+    if (fruitList.length) produceText += (produceText ? ", " : "") + fruitList.length + " fruits";
+    if (!produceText) produceText = "Any";
+    html += reviewSection("Weekly Produce", produceText, 10);
 
     html += '<div style="margin-top:1.5rem;">';
     html += '<button class="btn-next btn-next-full" id="ob-next">Create My First Meal Plan</button>';
@@ -357,11 +470,13 @@ var Onboarding = (function () {
       case 2: bindServings(); break;
       case 3: bindChipGroup("ob-diets", data.diets); break;
       case 4: bindChipGroup("ob-allergies", data.allergies); break;
-      case 5: bindChipGroup("ob-cuisines", data.cuisines); bindCuisineInput(); bindRotate(); break;
+      case 5: bindChipGroup("ob-cuisines", data.cuisines); bindCuisineInput(); bindRotate(); bindToggleAllCuisines(); break;
       case 6: bindDislikes(); break;
       case 7: bindSchedule(); break;
       case 8: bindPantry(); break;
-      case 9: bindReviewEdits(); break;
+      case 9: bindItemPickerAll(data.proteins); bindCategoryToggles(PROTEIN_OPTIONS, data.proteins); break;
+      case 10: bindItemPickerIn("ob-veggies", data.vegetables); bindItemPickerIn("ob-fruits", data.fruits); bindCategoryToggles(VEGETABLE_OPTIONS, data.vegetables); bindFruitToggle(); break;
+      case 11: bindReviewEdits(); break;
     }
   }
 
@@ -524,6 +639,69 @@ var Onboarding = (function () {
     }
   }
 
+  function bindItemPickerAll(store) {
+    document.querySelectorAll(".staple-item").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var item = btn.getAttribute("data-item");
+        store[item] = !store[item];
+        if (!store[item]) delete store[item];
+        btn.classList.toggle("on", !!store[item]);
+      });
+    });
+  }
+
+  function bindItemPickerIn(containerId, store) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    container.querySelectorAll(".staple-item").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var item = btn.getAttribute("data-item");
+        store[item] = !store[item];
+        if (!store[item]) delete store[item];
+        btn.classList.toggle("on", !!store[item]);
+      });
+    });
+  }
+
+  function bindCategoryToggles(categories, store) {
+    document.querySelectorAll(".staple-toggle-all[data-cat]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var catName = btn.getAttribute("data-cat");
+        var cat = categories.find(function (c) { return c.name === catName; });
+        if (!cat) return;
+        var allOn = cat.items.every(function (i) { return store[i]; });
+        cat.items.forEach(function (i) {
+          if (allOn) { delete store[i]; } else { store[i] = true; }
+        });
+        render();
+      });
+    });
+  }
+
+  function bindToggleAllCuisines() {
+    var btn = document.getElementById("ob-cuisine-toggle-all");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      var allOn = CUISINE_OPTIONS.every(function (c) { return data.cuisines[c]; });
+      CUISINE_OPTIONS.forEach(function (c) {
+        if (allOn) { delete data.cuisines[c]; } else { data.cuisines[c] = true; }
+      });
+      render();
+    });
+  }
+
+  function bindFruitToggle() {
+    var btn = document.getElementById("ob-fruit-toggle-all");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      var allOn = FRUIT_OPTIONS.every(function (f) { return data.fruits[f]; });
+      FRUIT_OPTIONS.forEach(function (f) {
+        if (allOn) { delete data.fruits[f]; } else { data.fruits[f] = true; }
+      });
+      render();
+    });
+  }
+
   function bindReviewEdits() {
     document.querySelectorAll(".review-edit").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -547,6 +725,10 @@ var Onboarding = (function () {
       if (meals.length) scheduleObj[d] = meals;
     });
 
+    var proteinList = Object.keys(data.proteins).filter(function (k) { return data.proteins[k]; });
+    var vegList = Object.keys(data.vegetables).filter(function (k) { return data.vegetables[k]; });
+    var fruitList = Object.keys(data.fruits).filter(function (k) { return data.fruits[k]; });
+
     return {
       prefs: {
         servingSize: data.servingSize,
@@ -556,10 +738,72 @@ var Onboarding = (function () {
         rotateCuisines: data.rotateCuisines,
         dislikedFoods: data.dislikedFoods.join(", ") || null,
         mealSchedule: JSON.stringify(scheduleObj),
+        preferredProteins: proteinList.join(", ") || null,
+        preferredVegetables: vegList.join(", ") || null,
+        preferredFruits: fruitList.join(", ") || null,
         onboardingCompleted: true
       },
       pantryItems: pantryItems
     };
+  }
+
+  /* ---- loading messages (Kevin Hale style — delight during the wait) ---- */
+  var LOADING_MESSAGES = [
+    { text: "Convincing the AI that ketchup is not a vegetable...", emoji: "🍅" },
+    { text: "Teaching our chef bot that toast is not a meal...", emoji: "🍞" },
+    { text: "Negotiating with broccoli to be delicious...", emoji: "🥦" },
+    { text: "Asking salmon how it wants to be cooked...", emoji: "🐟" },
+    { text: "Making sure nobody gets a mustard sandwich...", emoji: "🌭" },
+    { text: "Calculating the perfect chicken-to-vegetable ratio...", emoji: "🍗" },
+    { text: "Reminding the AI that cereal for dinner is frowned upon...", emoji: "🥣" },
+    { text: "Ensuring your meals have actual nutrients...", emoji: "💪" },
+    { text: "Politely rejecting 'bread with bread' as a recipe...", emoji: "🥖" },
+    { text: "Cross-referencing your pantry with good taste...", emoji: "👨‍🍳" },
+    { text: "Whispering sweet nothings to the Gemini API...", emoji: "🤖" },
+    { text: "Assembling 21 meals that won't disappoint your stomach...", emoji: "🫃" },
+    { text: "Double-checking that we didn't plan leftovers for Monday...", emoji: "📅" },
+    { text: "Vetoing the AI's suggestion of 'deconstructed water'...", emoji: "💧" },
+    { text: "Making your grocery list shorter than a CVS receipt...", emoji: "🧾" },
+    { text: "Plotting world domination through meal prep...", emoji: "🌍" },
+    { text: "Your meals are being curated by a very sophisticated algorithm...", emoji: "🧠" },
+    { text: "Almost there — just seasoning the data...", emoji: "🧂" },
+  ];
+
+  var _loadingInterval = null;
+
+  function startLoadingMessages(card) {
+    var msgEl = card.querySelector("#loading-message");
+    var emojiEl = card.querySelector("#loading-emoji");
+    if (!msgEl) return;
+
+    var index = 0;
+    function next() {
+      index = (index + 1) % LOADING_MESSAGES.length;
+      // Fade out
+      msgEl.style.opacity = "0";
+      emojiEl.style.opacity = "0";
+      setTimeout(function () {
+        msgEl.textContent = LOADING_MESSAGES[index].text;
+        emojiEl.textContent = LOADING_MESSAGES[index].emoji;
+        // Fade in
+        msgEl.style.opacity = "1";
+        emojiEl.style.opacity = "1";
+      }, 300);
+    }
+
+    // Shuffle the first message
+    index = Math.floor(Math.random() * LOADING_MESSAGES.length);
+    msgEl.textContent = LOADING_MESSAGES[index].text;
+    emojiEl.textContent = LOADING_MESSAGES[index].emoji;
+
+    _loadingInterval = setInterval(next, 3500);
+  }
+
+  function stopLoadingMessages() {
+    if (_loadingInterval) {
+      clearInterval(_loadingInterval);
+      _loadingInterval = null;
+    }
   }
 
   /* ---- persist onboarding to server (user must be authenticated) ---- */
@@ -568,15 +812,19 @@ var Onboarding = (function () {
     var card = overlay.querySelector(".onboarding-card");
     card.innerHTML =
       '<div style="text-align:center;padding:3rem 0;">' +
-      '<div class="logo" style="font-size:1.5rem;margin-bottom:1rem;">Smart<span class="logo-accent">Cart</span></div>' +
-      '<p class="onboarding-subtitle">Creating your personalized meal plan...</p>' +
-      '<p class="text-muted text-sm">This may take a minute</p>' +
+      '<div class="logo" style="font-size:1.5rem;margin-bottom:1.5rem;">Smart<span class="logo-accent">Cart</span></div>' +
+      '<div id="loading-emoji" style="font-size:2.5rem;margin-bottom:1rem;transition:opacity 0.3s;">🍳</div>' +
+      '<p class="onboarding-subtitle" id="loading-message" style="transition:opacity 0.3s;min-height:1.5em;">Warming up the kitchen...</p>' +
+      '<div class="spinner" style="margin:1.5rem auto;"></div>' +
+      '<p class="text-muted text-sm" style="margin-top:0.5rem;">Usually takes 30\u201360 seconds</p>' +
       '</div>';
+    startLoadingMessages(card);
 
     Api.updatePreferences(payload.prefs)
       .then(function () { return Api.savePantry(payload.pantryItems); })
       .then(function () { return Api.generateMealPlan(payload.pantryItems.join(", ")); })
       .then(function (plan) {
+        stopLoadingMessages();
         sessionStorage.removeItem("onboardingPayload");
         overlay.setAttribute("hidden", "");
         document.querySelector(".app").style.display = "";
@@ -591,6 +839,7 @@ var Onboarding = (function () {
         }
       })
       .catch(function (err) {
+        stopLoadingMessages();
         console.error("Onboarding submit failed:", err);
         card.innerHTML =
           '<div style="text-align:center;padding:2rem 0;">' +

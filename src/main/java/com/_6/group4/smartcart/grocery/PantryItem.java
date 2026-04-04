@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "pantry_items")
+@Access(AccessType.FIELD)
 public class PantryItem {
 
     @Id
@@ -18,9 +19,6 @@ public class PantryItem {
 
     @Column(name = "ingredient_name", nullable = false)
     private String ingredientName;
-
-    @Column(name = "canonical_name")
-    private String canonicalName;
 
     @Column
     private Double quantity;
@@ -52,16 +50,9 @@ public class PantryItem {
     public User getUser() { return user; }
     public void setUser(User user) { this.user = user; }
     public String getIngredientName() { return ingredientName; }
-    public void setIngredientName(String ingredientName) {
-        this.ingredientName = ingredientName;
-        if (ingredientName == null || ingredientName.isBlank()) {
-            this.canonicalName = null;
-        } else if (this.canonicalName == null || this.canonicalName.isBlank()) {
-            this.canonicalName = IngredientNormalizer.canonicalizeName(ingredientName);
-        }
-    }
-    public String getCanonicalName() { return canonicalName; }
-    public void setCanonicalName(String canonicalName) { this.canonicalName = canonicalName; }
+    public void setIngredientName(String ingredientName) { this.ingredientName = ingredientName; }
+    @Transient
+    public String getCanonicalName() { return IngredientNormalizer.canonicalizeName(ingredientName); }
     public Double getQuantity() { return quantity; }
     public void setQuantity(Double quantity) { this.quantity = quantity; }
     public String getUnit() { return unit; }
