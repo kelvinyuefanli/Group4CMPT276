@@ -9,6 +9,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -46,6 +47,7 @@ public class InstacartShoppingListService {
         this.expiresInDays = expiresInDays != null && expiresInDays > 0 ? expiresInDays : null;
     }
 
+    @Transactional(readOnly = true)
     public ShoppingListLinkResult createShoppingListLinkForUser(Long userId) {
         MealPlan latestPlan = mealPlanRepository.findTopByUserIdOrderByCreatedAtDesc(userId)
                 .orElseThrow(() -> new NoSuchElementException("Generate a meal plan before sending items to Instacart."));
