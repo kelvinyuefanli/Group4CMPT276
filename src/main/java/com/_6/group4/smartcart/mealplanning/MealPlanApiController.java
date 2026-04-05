@@ -181,51 +181,56 @@ public class MealPlanApiController {
 
         // Parse allergen list for post-generation verification
         Set<String> allergenSet = parseAllergenSet(effectiveAllergies);
-        List<String> removedMeals = new ArrayList<>();
+        List<ResolvedMealSelection> resolvedMeals = new ArrayList<>();
 
         for (GeminiMealPlanDto.MealEntry entry : MealPlanGenerationSupport.buildMealPlan(extracted.acceptedMeals()).meals()) {
             if (entry.recipe() == null) continue;
             try {
                 DayOfWeek day = DayOfWeek.valueOf(entry.dayOfWeek());
                 MealType meal = MealType.valueOf(entry.mealType());
+                GeminiRecipeDto selectedRecipe = entry.recipe();
 
                 // Allergy verification: check recipe ingredients against allergen list
-                if (!allergenSet.isEmpty() && recipeContainsAllergen(entry.recipe(), allergenSet)) {
+                if (!allergenSet.isEmpty() && recipeContainsAllergen(selectedRecipe, allergenSet)) {
                     log.warn("Allergy detected in {} {} recipe '{}' — attempting re-generation",
                             entry.dayOfWeek(), entry.mealType(),
-                            entry.recipe().title());
+                            selectedRecipe.title());
 
                     // Re-generate this single slot with a stronger allergy prompt
                     GeminiRecipeDto replacement = geminiService.generateSingleMeal(
                             entry.dayOfWeek(), entry.mealType(),
                             effectiveAllergies, effectiveDietaryRestrictions, effectivePreferredCuisines);
 
-                    if (replacement != null && !recipeContainsAllergen(replacement, allergenSet)) {
-                        Recipe recipe = persistRecipe(replacement, effectiveServingSize);
-                        plan.getRecipes().add(new MealPlanRecipe(plan, recipe, day, meal));
-                    } else {
-                        // Re-generation also failed — remove this slot entirely
-                        removedMeals.add(entry.dayOfWeek() + " " + entry.mealType());
-                        log.warn("Re-generation still contained allergen for {} {} — slot removed",
+                    if (replacement == null || recipeContainsAllergen(replacement, allergenSet)) {
+                        log.warn("Re-generation still contained allergen for {} {} - aborting plan generation",
                                 entry.dayOfWeek(), entry.mealType());
+                        return ResponseEntity.badRequest().body(Map.of(
+                                "error",
+                                "Generated " + entry.dayOfWeek() + " " + entry.mealType()
+                                        + " meal contained an allergen and could not be safely regenerated. Please try again."
+                        ));
                     }
-                } else {
-                    Recipe recipe = persistRecipe(entry.recipe(), effectiveServingSize);
-                    plan.getRecipes().add(new MealPlanRecipe(plan, recipe, day, meal));
+                    selectedRecipe = replacement;
                 }
+                resolvedMeals.add(new ResolvedMealSelection(day, meal, selectedRecipe));
             } catch (IllegalArgumentException ignored) {
-                // skip entries with invalid day/meal values from Gemini
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Generated plan contained invalid meal slots. Please try again."));
             }
         }
 
-        mealPlanRepository.save(plan);
-        Map<String, Object> response = toMealPlanResponse(plan);
-        if (!removedMeals.isEmpty()) {
-            response.put("allergyWarnings", removedMeals.stream()
-                    .map(slot -> slot + " was removed because it contained an allergen")
-                    .toList());
+        if (resolvedMeals.size() != expectedSlots.size()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Generated plan was incomplete for the selected preferences. Please try again."));
         }
-        return ResponseEntity.ok(response);
+
+        for (ResolvedMealSelection resolvedMeal : resolvedMeals) {
+            Recipe recipe = persistRecipe(resolvedMeal.recipe(), effectiveServingSize);
+            plan.getRecipes().add(new MealPlanRecipe(plan, recipe, resolvedMeal.dayOfWeek(), resolvedMeal.mealType()));
+        }
+
+        mealPlanRepository.save(plan);
+        return ResponseEntity.ok(toMealPlanResponse(plan));
     }
 
     // ---- Meal Swap --------------------------------------------------------
@@ -699,6 +704,9 @@ public class MealPlanApiController {
         resp.put("instructions", r.getInstructions());
         resp.put("ingredients", ings);
         return resp;
+    }
+
+    private record ResolvedMealSelection(DayOfWeek dayOfWeek, MealType mealType, GeminiRecipeDto recipe) {
     }
 
     // ---- Allergy Verification -----------------------------------------------

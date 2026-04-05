@@ -53,6 +53,13 @@ var Api = (function () {
       return request("/grocery-list");
     },
 
+    createInstacartShoppingList: function () {
+      return request("/instacart/shopping-list", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    },
+
     fetchPreferences: function () {
       return request("/preferences");
     },
