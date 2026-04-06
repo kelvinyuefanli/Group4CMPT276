@@ -230,7 +230,100 @@ public class MealPlanApiController {
         }
 
         mealPlanRepository.save(plan);
-        return ResponseEntity.ok(toMealPlanResponse(plan));
+        Map<String, Object> response = toMealPlanResponse(plan);
+        if (!removedMeals.isEmpty()) {
+            response.put("allergyWarnings", removedMeals.stream()
+                    .map(slot -> slot + " was removed because it contained an allergen")
+                    .toList());
+        }
+        return ResponseEntity.ok(response);
+    }
+
+    // ---- Meal Swap --------------------------------------------------------
+
+    /**
+     * Swap one or more meal slots in the current plan with freshly generated recipes.
+     * Accepts: { "slots": [{"dayOfWeek":"MONDAY","mealType":"DINNER"}, ...] }
+     */
+    @PostMapping("/meal-plan/swap")
+    @Transactional
+    public ResponseEntity<?> swapMeals(@RequestBody Map<String, Object> body, HttpSession session) {
+        Long userId = getCurrentUserId(session);
+        if (userId == null) return UNAUTHORIZED;
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, String>> slots = (List<Map<String, String>>) body.get("slots");
+        if (slots == null || slots.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "No meal slots specified"));
+        }
+
+        Optional<MealPlan> planOpt = mealPlanRepository.findTopByUserIdOrderByCreatedAtDesc(userId);
+        if (planOpt.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "No meal plan exists. Generate one first."));
+        }
+        MealPlan plan = planOpt.get();
+
+        UserPreferences prefs = preferencesRepository.findByUserId(userId).orElse(null);
+        String allergies = prefs != null ? prefs.getAllergies() : null;
+        String dietaryRestrictions = prefs != null ? prefs.getDietaryRestrictions() : null;
+        String preferredCuisines = prefs != null ? prefs.getPreferredCuisines() : null;
+        int effectiveServingSize = prefs != null ? prefs.getServingSize() : 2;
+
+        Set<String> allergenSet = parseAllergenSet(allergies);
+        List<String> swapped = new ArrayList<>();
+        List<String> failed = new ArrayList<>();
+
+        for (Map<String, String> slot : slots) {
+            String dayStr = slot.get("dayOfWeek");
+            String mealStr = slot.get("mealType");
+            if (dayStr == null || mealStr == null) continue;
+
+            try {
+                DayOfWeek day = DayOfWeek.valueOf(dayStr);
+                MealType meal = MealType.valueOf(mealStr);
+
+                // Generate a replacement recipe
+                GeminiRecipeDto replacement = geminiService.generateSingleMeal(
+                        dayStr, mealStr, allergies, dietaryRestrictions, preferredCuisines);
+
+                if (replacement == null) {
+                    failed.add(dayStr + " " + mealStr);
+                    continue;
+                }
+
+                // Allergy check on the replacement
+                if (!allergenSet.isEmpty() && recipeContainsAllergen(replacement, allergenSet)) {
+                    // Try once more
+                    replacement = geminiService.generateSingleMeal(
+                            dayStr, mealStr, allergies, dietaryRestrictions, preferredCuisines);
+                    if (replacement == null || recipeContainsAllergen(replacement, allergenSet)) {
+                        failed.add(dayStr + " " + mealStr + " (allergen detected)");
+                        continue;
+                    }
+                }
+
+                Recipe newRecipe = persistRecipe(replacement, effectiveServingSize);
+
+                // Remove old recipe for this slot
+                plan.getRecipes().removeIf(mpr ->
+                        mpr.getDayOfWeek() == day && mpr.getMealType() == meal);
+
+                // Add new recipe
+                plan.getRecipes().add(new MealPlanRecipe(plan, newRecipe, day, meal));
+                swapped.add(dayStr + " " + mealStr);
+
+            } catch (IllegalArgumentException e) {
+                failed.add(dayStr + " " + mealStr + " (invalid)");
+            }
+        }
+
+        mealPlanRepository.save(plan);
+        Map<String, Object> response = toMealPlanResponse(plan);
+        response.put("swapped", swapped);
+        if (!failed.isEmpty()) {
+            response.put("swapFailed", failed);
+        }
+        return ResponseEntity.ok(response);
     }
 
     // ---- Meal Swap --------------------------------------------------------
