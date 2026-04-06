@@ -254,6 +254,17 @@ function parseInstructionSteps(text) {
   return [text];
 }
 
+function fallbackCopy(text) {
+  var ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  document.body.removeChild(ta);
+}
+
 function formatRecipeText(recipe) {
   var lines = [recipe.title];
   var meta = [];
@@ -883,12 +894,19 @@ function renderRecipeDetail(recipe) {
   if (copyBtn) {
     copyBtn.addEventListener("click", function () {
       var text = formatRecipeText(recipe);
-      navigator.clipboard.writeText(text).then(function () {
+      function showCopied() {
         copyBtn.textContent = "Copied!";
-        setTimeout(function () {
-          copyBtn.textContent = "Copy";
-        }, 1500);
-      });
+        setTimeout(function () { copyBtn.textContent = "Copy"; }, 1500);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(showCopied).catch(function () {
+          fallbackCopy(text);
+          showCopied();
+        });
+      } else {
+        fallbackCopy(text);
+        showCopied();
+      }
     });
   }
 

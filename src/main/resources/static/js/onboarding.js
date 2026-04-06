@@ -763,7 +763,7 @@ var Onboarding = (function () {
     { text: "Assembling 21 meals that won't disappoint your stomach...", emoji: "🫃" },
     { text: "Double-checking that we didn't plan leftovers for Monday...", emoji: "📅" },
     { text: "Vetoing the AI's suggestion of 'deconstructed water'...", emoji: "💧" },
-    { text: "Making your grocery list shorter than a CVS receipt...", emoji: "🧾" },
+    { text: "Organizing your grocery list so you don't wander every aisle...", emoji: "🧾" },
     { text: "Plotting world domination through meal prep...", emoji: "🌍" },
     { text: "Your meals are being curated by a very sophisticated algorithm...", emoji: "🧠" },
     { text: "Almost there — just seasoning the data...", emoji: "🧂" },
