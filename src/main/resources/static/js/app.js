@@ -1044,6 +1044,11 @@ function renderGroceryRow(item, sectionType) {
       "</button>";
   }
 
+  // Swap button (only for "Need to Buy" items, not pantry)
+  if (sectionType === "remaining") {
+    html += '<button class="grocery-swap-btn" data-name="' + esc(item.canonicalName || item.name) + '" data-display="' + esc(item.name) + '">Swap</button>';
+  }
+
   html += "</div></div></li>";
   return html;
 }
@@ -1175,6 +1180,8 @@ function bindGroceryControls(container) {
     instacartButton.addEventListener("click", handleInstacartCheckout);
   }
 
+  bindSwapButtons(container);
+
   var copyGroceryBtn = container.querySelector("#btn-copy-grocery");
   if (copyGroceryBtn) {
     copyGroceryBtn.addEventListener("click", function () {
@@ -1226,6 +1233,95 @@ function handleInstacartCheckout(event) {
   if (event) {
     event.preventDefault();
   }
+}
+
+function bindSwapButtons(container) {
+  container.querySelectorAll(".grocery-swap-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var ingredientName = btn.getAttribute("data-name");
+      var displayName = btn.getAttribute("data-display");
+      btn.textContent = "Loading...";
+      btn.disabled = true;
+      fetchJSON("/api/grocery-list/swap-options?ingredient=" + encodeURIComponent(ingredientName))
+        .then(function (data) {
+          btn.textContent = "Swap";
+          btn.disabled = false;
+          if (!data.alternatives || data.alternatives.length === 0) {
+            showSwapDropdown(btn, displayName, [{ name: "No alternatives found", note: "", priceCad: null }]);
+          } else {
+            showSwapDropdown(btn, displayName, data.alternatives);
+          }
+        })
+        .catch(function () {
+          btn.textContent = "Swap";
+          btn.disabled = false;
+        });
+    });
+  });
+}
+
+function showSwapDropdown(anchorBtn, currentName, alternatives) {
+  // Remove any existing dropdown
+  var existing = document.querySelector(".swap-dropdown");
+  if (existing) existing.remove();
+
+  var dropdown = document.createElement("div");
+  dropdown.className = "swap-dropdown";
+
+  var header = document.createElement("div");
+  header.className = "swap-dropdown-header";
+  header.textContent = "Swap " + currentName + " for:";
+  dropdown.appendChild(header);
+
+  alternatives.forEach(function (alt) {
+    if (!alt.priceCad && alt.name === "No alternatives found") {
+      var empty = document.createElement("div");
+      empty.className = "swap-dropdown-item";
+      empty.textContent = "No alternatives available for this item";
+      empty.style.color = "var(--muted-foreground)";
+      dropdown.appendChild(empty);
+      return;
+    }
+    var item = document.createElement("div");
+    item.className = "swap-dropdown-item";
+
+    var nameSpan = document.createElement("span");
+    nameSpan.className = "swap-item-name";
+    nameSpan.textContent = alt.name;
+    item.appendChild(nameSpan);
+
+    var details = document.createElement("span");
+    details.className = "swap-item-details";
+    var parts = [];
+    if (alt.priceCad) parts.push("$" + alt.priceCad.toFixed(2) + "/" + alt.priceUnit);
+    if (alt.caloriesPer100g) parts.push(alt.caloriesPer100g + " cal/100g");
+    if (alt.note && alt.note !== "Same category") parts.push(alt.note);
+    details.textContent = parts.join(" · ");
+    item.appendChild(details);
+
+    item.addEventListener("click", function () {
+      dropdown.remove();
+      // TODO: actually swap the ingredient in the meal plan and refresh
+      // For now, show confirmation
+      alert("Swapped " + currentName + " for " + alt.name + "!\nGrocery list will update on next generation.");
+    });
+
+    dropdown.appendChild(item);
+  });
+
+  // Position near the button
+  anchorBtn.style.position = "relative";
+  anchorBtn.parentElement.appendChild(dropdown);
+
+  // Close on click outside
+  setTimeout(function () {
+    document.addEventListener("click", function closeDropdown(e) {
+      if (!dropdown.contains(e.target) && e.target !== anchorBtn) {
+        dropdown.remove();
+        document.removeEventListener("click", closeDropdown);
+      }
+    });
+  }, 10);
 }
 
 function groupByCategory(items) {

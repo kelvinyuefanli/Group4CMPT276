@@ -10,6 +10,7 @@ import com._6.group4.smartcart.grocery.IngredientNormalizer;
 import com._6.group4.smartcart.grocery.PantryItem;
 import com._6.group4.smartcart.grocery.PantryItemUpdateRequest;
 import com._6.group4.smartcart.grocery.PantryItemRepository;
+import com._6.group4.smartcart.grocery.IngredientSwapService;
 import com._6.group4.smartcart.mealplanning.dto.GeminiMealPlanDto;
 import com._6.group4.smartcart.mealplanning.dto.GeminiRecipeDto;
 import com._6.group4.smartcart.mealplanning.dto.MealPlanGenerationRequest;
@@ -345,6 +346,22 @@ public class MealPlanApiController {
                         .buildGroceryList(planOpt.orElse(null), pantryItems)
                         .toResponseMap()
         );
+    }
+
+    // ---- Ingredient Swap (at the store) ------------------------------------
+
+    @GetMapping("/grocery-list/swap-options")
+    public ResponseEntity<?> getSwapOptions(@RequestParam String ingredient, HttpSession session) {
+        Long userId = getCurrentUserId(session);
+        if (userId == null) return UNAUTHORIZED;
+
+        var alternatives = IngredientSwapService.getAlternatives(ingredient);
+        var category = IngredientSwapService.categorize(ingredient);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("ingredient", ingredient);
+        response.put("category", category.name());
+        response.put("alternatives", IngredientSwapService.alternativesToMapList(alternatives));
+        return ResponseEntity.ok(response);
     }
 
     // ---- Preferences ------------------------------------------------------
