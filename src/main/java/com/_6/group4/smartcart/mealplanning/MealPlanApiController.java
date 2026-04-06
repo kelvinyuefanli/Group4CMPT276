@@ -14,6 +14,8 @@ import com._6.group4.smartcart.mealplanning.dto.GeminiMealPlanDto;
 import com._6.group4.smartcart.mealplanning.dto.GeminiRecipeDto;
 import com._6.group4.smartcart.mealplanning.dto.MealPlanGenerationRequest;
 import jakarta.servlet.http.HttpSession;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -77,6 +79,44 @@ public class MealPlanApiController {
         return mealPlanRepository.findTopByUserIdOrderByCreatedAtDesc(userId)
                 .map(plan -> ResponseEntity.ok(toMealPlanResponse(plan)))
                 .orElse(ResponseEntity.ok(Map.of("meals", List.of())));
+    }
+
+    @GetMapping("/meal-plans")
+    @Transactional(readOnly = true)
+    public ResponseEntity<?> getMealPlanHistory(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "5") int size,
+            HttpSession session) {
+        Long userId = getCurrentUserId(session);
+        if (userId == null) return UNAUTHORIZED;
+        int clampedSize = Math.max(1, Math.min(size, 50));
+        Page<MealPlan> plans = mealPlanRepository.findByUserIdOrderByCreatedAtDesc(
+                userId, PageRequest.of(page, clampedSize));
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (MealPlan plan : plans.getContent()) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", plan.getId());
+            item.put("weekStartDate", plan.getWeekStartDate().toString());
+            item.put("createdAt", plan.getCreatedAt().toString());
+            item.put("mealCount", plan.getRecipes().size());
+            items.add(item);
+        }
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("items", items);
+        resp.put("page", plans.getNumber());
+        resp.put("totalPages", plans.getTotalPages());
+        resp.put("totalItems", plans.getTotalElements());
+        return ResponseEntity.ok(resp);
+    }
+
+    @GetMapping("/meal-plan/{id}")
+    @Transactional(readOnly = true)
+    public ResponseEntity<?> getMealPlanById(@PathVariable Long id, HttpSession session) {
+        Long userId = getCurrentUserId(session);
+        if (userId == null) return UNAUTHORIZED;
+        return mealPlanRepository.findByIdAndUserId(id, userId)
+                .map(plan -> ResponseEntity.ok(toMealPlanResponse(plan)))
+                .orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping("/meal-plan/generate")

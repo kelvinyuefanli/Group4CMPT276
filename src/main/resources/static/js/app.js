@@ -154,6 +154,9 @@ var state = {
   selectedFruits: {},
   pantrySaving: {},
   generating: false,
+  planHistory: [],
+  planHistoryIndex: 0,
+  viewingHistoricPlan: false,
 };
 
 /* =================================================================
@@ -490,6 +493,62 @@ function switchView(view) {
 
   if (view === "grocery") loadGroceryList();
   if (view === "preferences") loadPreferences();
+}
+
+/* =================================================================
+   Meal Plan History Navigation
+   ================================================================= */
+function loadPlanHistory() {
+  Api.getMealPlanHistory(0, 52).then(function (data) {
+    state.planHistory = data.items || [];
+    state.planHistoryIndex = 0;
+    state.viewingHistoricPlan = false;
+    renderPlanNav();
+  }).catch(function () { state.planHistory = []; renderPlanNav(); });
+}
+function renderPlanNav() {
+  var nav = document.getElementById("plan-nav");
+  if (!nav) return;
+  var history = state.planHistory, idx = state.planHistoryIndex;
+  if (!history.length) { nav.innerHTML = ""; return; }
+  var isLatest = idx === 0, isOldest = idx >= history.length - 1;
+  var current = history[idx];
+  var label = isLatest ? "This Week" : "Week of " + current.weekStartDate;
+  var html = '<div class="plan-nav">';
+  html += '<button class="plan-nav-btn" id="btn-plan-prev"' + (isOldest ? " disabled" : "") + '>&lsaquo; Previous Week</button>';
+  html += '<span class="plan-nav-label">' + esc(label) + '</span>';
+  html += '<button class="plan-nav-btn" id="btn-plan-next"' + (isLatest ? " disabled" : "") + '>Next Week &rsaquo;</button>';
+  html += '</div>';
+  nav.innerHTML = html;
+  var prevBtn = document.getElementById("btn-plan-prev");
+  var nextBtn = document.getElementById("btn-plan-next");
+  if (prevBtn) prevBtn.addEventListener("click", function () {
+    if (state.planHistoryIndex < state.planHistory.length - 1) { state.planHistoryIndex++; navigateToPlan(state.planHistoryIndex); }
+  });
+  if (nextBtn) nextBtn.addEventListener("click", function () {
+    if (state.planHistoryIndex > 0) { state.planHistoryIndex--; navigateToPlan(state.planHistoryIndex); }
+  });
+}
+function navigateToPlan(idx) {
+  var entry = state.planHistory[idx];
+  if (!entry) return;
+  state.viewingHistoricPlan = idx !== 0;
+  Api.getMealPlanById(entry.id).then(function (plan) {
+    state.mealPlan = plan; state.selectedMeal = null; state.swapSelections = {};
+    updatePlanSubtitle(); renderPlanNav(); renderMealGrid(plan.meals || []);
+    renderRecipePanel(); updateHistoricPlanUI();
+  }).catch(function () { renderPlanNav(); });
+}
+function updateHistoricPlanUI() {
+  var grid = document.getElementById("meal-grid");
+  var generateBtn = document.getElementById("generate-btn");
+  if (state.viewingHistoricPlan) {
+    if (grid) grid.classList.add("plan-readonly");
+    if (generateBtn) generateBtn.style.display = "none";
+  } else {
+    if (grid) grid.classList.remove("plan-readonly");
+    if (generateBtn) generateBtn.style.display = "";
+  }
 }
 
 /* =================================================================
@@ -872,13 +931,15 @@ function renderRecipeDetail(recipe) {
   html += '<button class="btn-action" id="btn-copy-recipe">Copy</button>';
   html += "</div>";
 
-  html +=
-    '<div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);">';
-  html +=
-    '<button class="btn-swap-single" id="btn-swap-this">Swap This Meal</button>';
-  html +=
-    '<p class="hint" style="margin-top:0.25rem;">Generate a different recipe for this slot</p>';
-  html += "</div>";
+  if (!state.viewingHistoricPlan) {
+    html +=
+      '<div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);">';
+    html +=
+      '<button class="btn-swap-single" id="btn-swap-this">Swap This Meal</button>';
+    html +=
+      '<p class="hint" style="margin-top:0.25rem;">Generate a different recipe for this slot</p>';
+    html += "</div>";
+  }
 
   html += "</div>";
   panel.innerHTML = html;
@@ -1736,8 +1797,12 @@ function handleGenerate() {
       state.mealPlan = plan;
       state.selectedMeal = null;
       state.checkedItems = {};
+      state.viewingHistoricPlan = false;
+      state.planHistoryIndex = 0;
       updatePlanSubtitle();
       renderMealGrid(plan.meals || []);
+      updateHistoricPlanUI();
+      loadPlanHistory();
       $("#recipe-panel").innerHTML =
         '<div class="empty-state"><div>' +
         "<p>Select a meal from the plan</p>" +
@@ -1852,5 +1917,6 @@ function initApp() {
       renderMealGrid([]);
     });
 
+  loadPlanHistory();
   renderPreferences();
 }

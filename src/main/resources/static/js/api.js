@@ -92,5 +92,14 @@ var Api = (function () {
         body: JSON.stringify({ slots: slots }),
       });
     },
+    getMealPlanHistory: function (page, size) {
+      var p = page || 0;
+      var s = size || 10;
+      return request("/meal-plans?page=" + p + "&size=" + s);
+    },
+
+    getMealPlanById: function (id) {
+      return request("/meal-plan/" + id);
+    },
   };
 })();
