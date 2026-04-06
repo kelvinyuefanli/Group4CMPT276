@@ -133,6 +133,10 @@ public class GroceryAggregationService {
             String inputMode,
             String category
     ) {
+        String storeQuantity() {
+            return StoreQuantityConverter.convert(canonicalName != null ? canonicalName : name, quantityValue, unit);
+        }
+
         Map<String, Object> toMap() {
             Map<String, Object> map = new LinkedHashMap<>();
             map.put("itemKey", itemKey);
@@ -141,6 +145,7 @@ public class GroceryAggregationService {
             map.put("quantity", quantity);
             map.put("quantityValue", quantityValue);
             map.put("unit", unit);
+            map.put("storeQuantity", storeQuantity());
             map.put("pantryQuantityValue", pantryQuantityValue);
             map.put("covered", covered);
             map.put("inputMode", inputMode);

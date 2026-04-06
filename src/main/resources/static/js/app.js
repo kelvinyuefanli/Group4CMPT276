@@ -1173,6 +1173,52 @@ function bindGroceryControls(container) {
   if (instacartButton) {
     instacartButton.addEventListener("click", handleInstacartCheckout);
   }
+
+  var copyGroceryBtn = container.querySelector("#btn-copy-grocery");
+  if (copyGroceryBtn) {
+    copyGroceryBtn.addEventListener("click", function () {
+      var text = buildShoppingListText();
+      function showCopied() {
+        copyGroceryBtn.textContent = "Copied!";
+        setTimeout(function () { copyGroceryBtn.textContent = "Copy Shopping List"; }, 1500);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(showCopied).catch(function () {
+          fallbackCopy(text);
+          showCopied();
+        });
+      } else {
+        fallbackCopy(text);
+        showCopied();
+      }
+    });
+  }
+
+  var printGroceryBtn = container.querySelector("#btn-print-grocery");
+  if (printGroceryBtn) {
+    printGroceryBtn.addEventListener("click", function () {
+      var text = buildShoppingListText();
+      var w = window.open("", "_blank");
+      w.document.write('<html><head><title>Shopping List</title>');
+      w.document.write('<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:500px;margin:2rem auto;font-size:14px;}');
+      w.document.write('h1{font-size:1.5rem;margin-bottom:1rem;} h2{font-size:1.1rem;margin:1.5rem 0 0.5rem;color:#555;text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid #ddd;padding-bottom:0.25rem;}');
+      w.document.write('.item{padding:0.3rem 0;display:flex;gap:0.5rem;} .check{width:14px;height:14px;border:1.5px solid #999;border-radius:2px;flex-shrink:0;margin-top:2px;}');
+      w.document.write('</style></head><body>');
+      w.document.write('<h1>Shopping List</h1>');
+      var items = state.lastGroceryData ? state.lastGroceryData.items || [] : [];
+      var byCategory = groupByCategory(items);
+      Object.keys(byCategory).forEach(function (cat) {
+        w.document.write('<h2>' + esc(cat) + '</h2>');
+        byCategory[cat].forEach(function (item) {
+          var qty = item.storeQuantity || (item.quantity || "") + " " + (item.unit || "");
+          w.document.write('<div class="item"><div class="check"></div><span>' + esc(item.name) + ' — ' + esc(qty.trim()) + '</span></div>');
+        });
+      });
+      w.document.write('</body></html>');
+      w.document.close();
+      w.print();
+    });
+  }
 }
 
 function handleInstacartCheckout(event) {
@@ -1181,7 +1227,33 @@ function handleInstacartCheckout(event) {
   }
 }
 
+function groupByCategory(items) {
+  var cats = {};
+  items.forEach(function (item) {
+    var cat = item.category || "Other";
+    if (!cats[cat]) cats[cat] = [];
+    cats[cat].push(item);
+  });
+  return cats;
+}
+
+function buildShoppingListText() {
+  var items = state.lastGroceryData ? state.lastGroceryData.items || [] : [];
+  var byCategory = groupByCategory(items);
+  var lines = ["SHOPPING LIST", ""];
+  Object.keys(byCategory).forEach(function (cat) {
+    lines.push(cat.toUpperCase());
+    byCategory[cat].forEach(function (item) {
+      var qty = item.storeQuantity || (item.quantity || "") + " " + (item.unit || "");
+      lines.push("☐ " + item.name + " — " + qty.trim());
+    });
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+
 function renderGroceryList(data) {
+  state.lastGroceryData = data;
   var container = $("#grocery-content");
   var items = data.items || [];
   var coveredItems = data.coveredItems || [];
@@ -1237,20 +1309,15 @@ function renderGroceryList(data) {
   }
   html += "</div>";
 
+  if (items.length) {
+    html += '<div style="display:flex;gap:0.5rem;margin-bottom:1rem;">';
+    html += '<button class="btn-action" id="btn-copy-grocery">Copy Shopping List</button>';
+    html += '<button class="btn-action" id="btn-print-grocery">Print Shopping List</button>';
+    html += '</div>';
+  }
+
   html += renderGrocerySection("Need to Buy", items, "remaining");
   html += renderGrocerySection("Already in Pantry", coveredItems, "covered");
-
-  if (items.length) {
-    html += '<div class="grocery-footer">';
-    html +=
-      '<button type="button" id="btn-instacart" class="btn-primary btn-primary-full">' +
-      "Send Remaining Items to Instacart &rarr;" +
-      "</button>";
-    html +=
-      '<p style="font-size:0.75rem;color:var(--muted-foreground);text-align:center;margin-top:0.5rem;">' +
-      "Uses only the ingredients and quantities you still need to buy</p>";
-    html += "</div>";
-  }
   html += "</div>";
 
   container.innerHTML = html;
