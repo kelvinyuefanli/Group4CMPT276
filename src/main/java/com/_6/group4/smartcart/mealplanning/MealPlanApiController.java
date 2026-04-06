@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import com._6.group4.smartcart.grocery.NutritionDatabase;
 import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
 import java.util.*;
@@ -366,7 +367,19 @@ public class MealPlanApiController {
     @Transactional(readOnly = true)
     public ResponseEntity<?> getRecipe(@PathVariable Long id) {
         return recipeRepository.findById(id)
-                .map(r -> ResponseEntity.ok(toRecipeResponse(r)))
+                .map(r -> {
+                    Map<String, Object> response = toRecipeResponse(r);
+                    // Attach nutrition estimate from static database
+                    List<NutritionDatabase.RecipeIngredientInput> inputs = r.getIngredients().stream()
+                            .map(ing -> new NutritionDatabase.RecipeIngredientInput(
+                                    ing.getCanonicalName() != null ? ing.getCanonicalName() : ing.getIngredientName(),
+                                    ing.getQuantity() != null ? ing.getQuantity().doubleValue() : null,
+                                    ing.getUnit()))
+                            .collect(java.util.stream.Collectors.toList());
+                    NutritionDatabase.RecipeNutrition nutrition = NutritionDatabase.estimateRecipe(inputs);
+                    response.put("nutrition", nutrition.toMap());
+                    return ResponseEntity.ok(response);
+                })
                 .orElse(ResponseEntity.notFound().build());
     }
 

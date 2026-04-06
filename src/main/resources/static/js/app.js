@@ -888,6 +888,17 @@ function renderRecipeDetail(recipe) {
       "</div>";
   }
 
+  // Nutrition bar
+  if (recipe.nutrition && recipe.nutrition.totalCalories > 0) {
+    var n = recipe.nutrition;
+    html += '<div class="nutrition-bar">';
+    html += '<div class="nutrition-item"><span class="nutrition-value">' + n.totalCalories + '</span><span class="nutrition-label">cal</span></div>';
+    html += '<div class="nutrition-item"><span class="nutrition-value">' + n.totalProteinG + 'g</span><span class="nutrition-label">protein</span></div>';
+    html += '<div class="nutrition-item"><span class="nutrition-value">' + n.totalCarbsG + 'g</span><span class="nutrition-label">carbs</span></div>';
+    html += '<div class="nutrition-item"><span class="nutrition-value">' + n.totalFatG + 'g</span><span class="nutrition-label">fat</span></div>';
+    html += '</div>';
+  }
+
   if (recipe.ingredients && recipe.ingredients.length) {
     html += '<div class="mb-8">';
     html += '<h3 class="section-label mb-3">Ingredients</h3>';
