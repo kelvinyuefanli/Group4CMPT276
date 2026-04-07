@@ -1197,6 +1197,16 @@ ul, ol { list-style: none; }
   font-size: 0.95rem;
 }
 
+/* Toast notifications */
+.toast-notification {
+  position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--foreground); color: white; padding: 0.75rem 1.5rem;
+  border-radius: var(--radius); font-size: 0.875rem; font-weight: 500;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15); opacity: 0; transition: all 0.3s ease;
+  z-index: 9999; pointer-events: none;
+}
+.toast-notification.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
 @media print {
   .app-header,
   .plan-sidebar,

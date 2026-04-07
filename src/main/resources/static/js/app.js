@@ -258,6 +258,20 @@ function parseInstructionSteps(text) {
   return [text];
 }
 
+function showToast(message) {
+  var existing = document.querySelector(".toast-notification");
+  if (existing) existing.remove();
+  var toast = document.createElement("div");
+  toast.className = "toast-notification";
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(function () { toast.classList.add("show"); }, 10);
+  setTimeout(function () {
+    toast.classList.remove("show");
+    setTimeout(function () { toast.remove(); }, 300);
+  }, 3000);
+}
+
 function fallbackCopy(text) {
   var ta = document.createElement("textarea");
   ta.value = text;
@@ -433,7 +447,7 @@ function handleExportWeek() {
     !state.mealPlan.meals ||
     !state.mealPlan.meals.length
   ) {
-    alert("Generate a meal plan first before exporting.");
+    showToast("Generate a meal plan first before exporting.");
     return;
   }
   var btn = document.getElementById("btn-export-week");
@@ -788,7 +802,7 @@ function doSwap(slots) {
       console.error("Swap failed:", err);
       state.swapping = false;
       renderMealGrid(state.mealPlan ? state.mealPlan.meals : []);
-      alert("Failed to swap meals. Please try again.");
+      showToast("Failed to swap meals. Please try again.");
     });
 }
 
@@ -1063,7 +1077,7 @@ function renderRecipeDetail(recipe) {
             console.error("Swap failed:", err);
             swapBtn.textContent = "Swap This Meal";
             swapBtn.disabled = false;
-            alert("Failed to swap meal. Please try again.");
+            showToast("Failed to swap meal. Please try again.");
           });
       });
     });
@@ -1168,7 +1182,7 @@ function renderFavourites(favourites) {
         switchView("plan");
         renderRecipeDetail(recipe);
       }).catch(function () {
-        alert("Failed to load recipe.");
+        showToast("Failed to load recipe.");
       });
     });
   });
@@ -1492,7 +1506,8 @@ function bindSwapButtons(container) {
       var displayName = btn.getAttribute("data-display");
       btn.textContent = "Loading...";
       btn.disabled = true;
-      fetchJSON("/api/grocery-list/swap-options?ingredient=" + encodeURIComponent(ingredientName))
+      fetch("/api/grocery-list/swap-options?ingredient=" + encodeURIComponent(ingredientName), { credentials: "same-origin" })
+        .then(function (res) { return res.json(); })
         .then(function (data) {
           btn.textContent = "Swap";
           btn.disabled = false;
@@ -1565,9 +1580,24 @@ function showSwapDropdown(anchorBtn, currentName, alternatives) {
         _swapDropdownCleanup();
         _swapDropdownCleanup = null;
       }
-      // TODO: actually swap the ingredient in the meal plan and refresh
-      // For now, show confirmation
-      alert("Swapped " + currentName + " for " + alt.name + "!\nGrocery list will update on next generation.");
+      // Visually update the grocery item to show the swap
+      var groceryRow = anchorBtn.closest("li");
+      if (groceryRow) {
+        var nameEl = groceryRow.querySelector(".grocery-name");
+        if (nameEl) {
+          nameEl.textContent = alt.name;
+          nameEl.style.color = "var(--primary)";
+        }
+        var swapBtn = groceryRow.querySelector(".grocery-swap-btn");
+        if (swapBtn) {
+          swapBtn.textContent = "Swapped";
+          swapBtn.disabled = true;
+          swapBtn.style.background = "var(--celery-light)";
+          swapBtn.style.color = "var(--primary)";
+          swapBtn.style.borderColor = "var(--primary)";
+        }
+      }
+      showToast("Swapped " + currentName + " for " + alt.name);
     });
 
     dropdown.appendChild(item);
