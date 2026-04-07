@@ -272,10 +272,28 @@ public final class PriceDatabase {
         // Price is per each
         if (perUnit.equals("each")) {
             if (unit.equals("cup") || unit.equals("cups")) {
-                // 1 cup of chopped veggie ≈ 0.5-1 whole piece
-                return qty * 0.75;
+                return qty * 0.75; // 1 cup chopped ≈ 0.75 of a whole piece
             }
-            return qty; // count-based
+            // Cloves of garlic: ~10 cloves per head
+            if (unit.equals("clove") || unit.equals("cloves")) {
+                return qty / 10.0;
+            }
+            // Slices: fraction of a whole
+            if (unit.equals("slice") || unit.equals("slices")) {
+                return qty / 12.0;
+            }
+            // Size descriptors: these are pieces, not multipliers
+            if (unit.equals("medium") || unit.equals("small") || unit.equals("large")) {
+                return qty;
+            }
+            // tbsp/tsp of something priced per each (e.g., lemon juice)
+            if (unit.equals("tbsp") || unit.equals("tablespoon")) {
+                return qty / 4.0; // ~4 tbsp per lemon/lime
+            }
+            if (unit.equals("tsp") || unit.equals("teaspoon")) {
+                return qty / 12.0;
+            }
+            return qty;
         }
 
         // Price is per bag/box/tub/carton/pack — estimate fraction used

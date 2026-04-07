@@ -2236,11 +2236,11 @@ function initApp() {
       state.mealPlan = plan;
       updatePlanSubtitle();
       renderMealGrid(plan.meals || []);
+      loadPlanHistory();
     })
     .catch(function () {
       renderMealGrid([]);
+      loadPlanHistory();
     });
-
-  loadPlanHistory();
   renderPreferences();
 }
