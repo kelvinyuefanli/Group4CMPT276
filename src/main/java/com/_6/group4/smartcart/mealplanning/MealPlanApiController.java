@@ -385,12 +385,12 @@ public class MealPlanApiController {
                     NutritionDatabase.RecipeNutrition nutrition = NutritionDatabase.estimateRecipe(inputs);
                     response.put("nutrition", nutrition.toMap());
 
-                    // Estimate recipe cost using PriceDatabase
+                    // Estimate recipe cost — proportional to actual ingredient usage
                     double totalCost = 0;
                     for (RecipeIngredient ing : r.getIngredients()) {
                         String name = ing.getCanonicalName() != null ? ing.getCanonicalName() : ing.getIngredientName();
-                        String storeQty = StoreQuantityConverter.convert(name, ing.getQuantity(), ing.getUnit());
-                        totalCost += PriceDatabase.estimateItemCost(name, storeQty);
+                        Double qty = ing.getQuantity() != null ? ing.getQuantity().doubleValue() : null;
+                        totalCost += PriceDatabase.estimateIngredientCost(name, qty, ing.getUnit());
                     }
                     response.put("estimatedCost", Math.round(totalCost * 100.0) / 100.0);
 

@@ -916,19 +916,25 @@ function renderRecipeDetail(recipe) {
   html += '<span class="text-sm text-muted">(per serving)</span>';
   html += "</div>";
 
-  // Nutrition bar
+  // Nutrition bar (scaled by serving ratio)
+  var servingRatio = currentServings / baseServings;
   if (recipe.nutrition && recipe.nutrition.totalCalories > 0) {
     var n = recipe.nutrition;
+    var scaledCal = Math.round(n.totalCalories * servingRatio);
+    var scaledProt = (n.totalProteinG * servingRatio).toFixed(1);
+    var scaledCarb = (n.totalCarbsG * servingRatio).toFixed(1);
+    var scaledFat = (n.totalFatG * servingRatio).toFixed(1);
     html += '<div class="nutrition-bar">';
-    html += '<div class="nutrition-item"><span class="nutrition-value">' + n.totalCalories + '</span><span class="nutrition-label">cal</span></div>';
-    html += '<div class="nutrition-item"><span class="nutrition-value">' + n.totalProteinG + 'g</span><span class="nutrition-label">protein</span></div>';
-    html += '<div class="nutrition-item"><span class="nutrition-value">' + n.totalCarbsG + 'g</span><span class="nutrition-label">carbs</span></div>';
-    html += '<div class="nutrition-item"><span class="nutrition-value">' + n.totalFatG + 'g</span><span class="nutrition-label">fat</span></div>';
+    html += '<div class="nutrition-item"><span class="nutrition-value">' + scaledCal + '</span><span class="nutrition-label">cal</span></div>';
+    html += '<div class="nutrition-item"><span class="nutrition-value">' + scaledProt + 'g</span><span class="nutrition-label">protein</span></div>';
+    html += '<div class="nutrition-item"><span class="nutrition-value">' + scaledCarb + 'g</span><span class="nutrition-label">carbs</span></div>';
+    html += '<div class="nutrition-item"><span class="nutrition-value">' + scaledFat + 'g</span><span class="nutrition-label">fat</span></div>';
     html += '</div>';
   }
 
   if (recipe.estimatedCost > 0) {
-    html += '<div class="recipe-cost">Est. cost: $' + recipe.estimatedCost.toFixed(2) + '</div>';
+    var scaledCost = (recipe.estimatedCost * servingRatio).toFixed(2);
+    html += '<div class="recipe-cost">Est. cost: $' + scaledCost + '</div>';
   }
 
   if (recipe.ingredients && recipe.ingredients.length) {

@@ -211,8 +211,7 @@ public final class PriceDatabase {
 
     /**
      * Estimate the cost of a grocery list item based on its store quantity.
-     * Uses the store quantity string from StoreQuantityConverter to determine how many
-     * units to buy, then multiplies by unit price.
+     * Used for grocery list totals (buying whole units at the store).
      */
     public static double estimateItemCost(String ingredientName, String storeQuantity) {
         StorePrice price = lookup(ingredientName);
@@ -220,6 +219,101 @@ public final class PriceDatabase {
 
         int units = parseStoreQuantityCount(storeQuantity);
         return price.priceCad() * units;
+    }
+
+    /**
+     * Estimate the proportional cost of an ingredient in a single recipe.
+     * E.g., 200g chicken breast = (200/454) * $6.99/lb = $3.08
+     * Used for per-recipe cost display (not grocery list).
+     */
+    public static double estimateIngredientCost(String ingredientName, Double quantity, String unit) {
+        if (ingredientName == null || quantity == null || quantity <= 0) return 0;
+        StorePrice price = lookup(ingredientName);
+        if (price == null) return 0;
+
+        String n = ingredientName.toLowerCase(Locale.ROOT).trim();
+        String u = unit != null ? unit.toLowerCase(Locale.ROOT).trim() : "";
+
+        // Skip pantry staples (salt, pepper, oil "to taste")
+        if (u.equals("to taste") || u.contains("to taste") || u.contains("pinch")
+                || u.contains("dash") || quantity < 0.01) return 0;
+
+        double fractionOfUnit = estimateFraction(n, quantity, u, price);
+        return price.priceCad() * fractionOfUnit;
+    }
+
+    private static double estimateFraction(String name, double qty, String unit, StorePrice price) {
+        String perUnit = price.perUnit();
+
+        // Price is per lb — convert ingredient to lbs
+        if (perUnit.equals("lb")) {
+            double lbs;
+            if (unit.equals("g") || unit.equals("gram") || unit.equals("grams")) {
+                lbs = qty / 454.0;
+            } else if (unit.equals("kg")) {
+                lbs = qty * 2.205;
+            } else if (unit.equals("lb") || unit.equals("lbs") || unit.equals("pound")) {
+                lbs = qty;
+            } else if (unit.equals("oz") || unit.equals("ounce")) {
+                lbs = qty / 16.0;
+            } else {
+                // Count-based (pieces) — estimate weight per piece
+                double gramsPerPiece = estimateGramsPerPiece(name);
+                lbs = (qty * gramsPerPiece) / 454.0;
+            }
+            return lbs;
+        }
+
+        // Price is per dozen
+        if (perUnit.equals("dozen")) {
+            return qty / 12.0;
+        }
+
+        // Price is per each
+        if (perUnit.equals("each")) {
+            if (unit.equals("cup") || unit.equals("cups")) {
+                // 1 cup of chopped veggie ≈ 0.5-1 whole piece
+                return qty * 0.75;
+            }
+            return qty; // count-based
+        }
+
+        // Price is per bag/box/tub/carton/pack — estimate fraction used
+        if (perUnit.equals("bag") || perUnit.equals("box") || perUnit.equals("tub")
+                || perUnit.equals("carton") || perUnit.equals("pack")
+                || perUnit.equals("block") || perUnit.equals("loaf")
+                || perUnit.equals("bottle") || perUnit.equals("jar")
+                || perUnit.equals("bunch")) {
+            if (unit.equals("cup") || unit.equals("cups")) {
+                // Rough: most bags/boxes contain ~3-4 cups
+                return qty / 3.5;
+            }
+            if (unit.equals("tbsp") || unit.equals("tablespoon")) {
+                return qty / 32.0; // ~32 tbsp per standard container
+            }
+            if (unit.equals("tsp") || unit.equals("teaspoon")) {
+                return qty / 96.0; // ~96 tsp per standard container
+            }
+            if (unit.equals("g") || unit.equals("gram") || unit.equals("grams")) {
+                return qty / 500.0; // assume 500g standard package
+            }
+            if (unit.equals("slice") || unit.equals("slices")) {
+                return qty / 20.0; // ~20 slices per loaf
+            }
+            // Count of items from a pack
+            return Math.min(qty / 8.0, 1.0); // assume 8 per pack
+        }
+
+        // Default: assume 1 unit
+        return Math.min(qty, 1.0);
+    }
+
+    private static double estimateGramsPerPiece(String name) {
+        if (name.contains("chicken")) return 180;
+        if (name.contains("salmon") || name.contains("fillet")) return 170;
+        if (name.contains("pork")) return 200;
+        if (name.contains("beef")) return 200;
+        return 150; // default
     }
 
     /**
