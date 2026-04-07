@@ -1116,6 +1116,16 @@ ul, ol { list-style: none; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
+/* Nutrition bar */
+.nutrition-bar {
+  display: flex; gap: 1rem; padding: 0.75rem 1rem; margin: 0.75rem 0;
+  background: var(--celery-light); border-radius: var(--radius);
+  border: 1px solid rgba(46, 125, 50, 0.15);
+}
+.nutrition-item { display: flex; flex-direction: column; align-items: center; min-width: 3.5rem; }
+.nutrition-value { font-weight: 700; font-size: 0.9375rem; color: var(--foreground); }
+.nutrition-label { font-size: 0.6875rem; color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.04em; }
+
 .btn-action {
   padding: 0.5rem 1rem;
   border: 1px solid var(--primary);
@@ -1217,3 +1227,22 @@ ul, ol { list-style: none; }
     border-bottom: 1px solid #ccc;
   }
 }
+
+/* ================================================================
+   Serving Adjuster
+   ================================================================ */
+.serving-adjuster { display: flex; align-items: center; gap: 0.5rem; margin: 0.75rem 0; }
+.serving-btn { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border); background: var(--card); cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; }
+.serving-btn:hover { background: var(--primary); color: white; }
+.serving-btn:disabled { opacity: 0.4; cursor: default; }
+.serving-btn:disabled:hover { background: var(--card); color: inherit; }
+.serving-count { font-weight: 600; min-width: 1.5rem; text-align: center; }
+
+.plan-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.plan-nav-label { font-size: 1.25rem; font-weight: 600; text-align: center; }
+.plan-nav-btn { background: none; border: 1px solid var(--border); border-radius: var(--radius); padding: 0.25rem 0.75rem; cursor: pointer; font-size: 0.875rem; color: var(--foreground); transition: background 0.15s ease; }
+.plan-nav-btn:hover:not(:disabled) { background: var(--accent); }
+.plan-nav-btn:disabled { opacity: 0.3; cursor: default; }
+.plan-readonly { opacity: 0.75; }
+.plan-readonly .meal-cell { cursor: default; }
+.plan-readonly .swap-toolbar { display: none !important; }

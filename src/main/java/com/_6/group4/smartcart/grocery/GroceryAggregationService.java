@@ -464,7 +464,8 @@ public class GroceryAggregationService {
                 case "lb", "lbs", "pound", "pounds" -> "lb";
                 case "g", "gram", "grams" -> "g";
                 case "kg", "kilogram", "kilograms" -> "kg";
-                case "ea", "each", "item", "items", "piece", "pieces", "count" -> "count";
+                case "ea", "each", "item", "items", "piece", "pieces", "count",
+                     "medium", "small", "large", "whole", "fillet", "fillets" -> "count";
                 default -> normalized;
             };
         }

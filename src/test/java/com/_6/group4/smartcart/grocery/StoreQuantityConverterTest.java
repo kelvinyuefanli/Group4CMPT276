@@ -48,10 +48,10 @@ class StoreQuantityConverterTest {
 
     // ---- Root veggies (bags) ----
     @Test void carrots_countToBag() {
-        assertEquals("1 bag", StoreQuantityConverter.convert("Carrots", 8.0, "count"));
+        assertEquals("1 bag (2 lb)", StoreQuantityConverter.convert("Carrots", 8.0, "count"));
     }
     @Test void carrots_manyToBags() {
-        assertEquals("2 bags", StoreQuantityConverter.convert("Carrots", 11.0, "count"));
+        assertEquals("2 bags (2 lb each)", StoreQuantityConverter.convert("Carrots", 11.0, "count"));
     }
 
     // ---- Bell peppers (pass through count) ----

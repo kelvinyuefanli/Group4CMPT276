@@ -302,7 +302,7 @@ public class GeminiService {
         }
 
         if (dislikedFoods != null && !dislikedFoods.isBlank()) {
-            prompt.append("Avoid these disliked foods: ").append(sanitizeInput(dislikedFoods)).append(". ");
+            prompt.append("IMPORTANT: Do NOT use any of these disliked foods as ingredients in ANY recipe: ").append(sanitizeInput(dislikedFoods)).append(". The user strongly dislikes these — do not include them even as minor ingredients. ");
         }
 
         prompt.append("Base meals on the provided ingredients as much as possible and minimize extra ingredients. ");

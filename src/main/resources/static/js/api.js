@@ -106,5 +106,15 @@ var Api = (function () {
     isFavourite: function (recipeId) {
       return request("/recipes/" + recipeId + "/favourite");
     },
+
+    getMealPlanHistory: function (page, size) {
+      var p = page || 0;
+      var s = size || 10;
+      return request("/meal-plans?page=" + p + "&size=" + s);
+    },
+
+    getMealPlanById: function (id) {
+      return request("/meal-plan/" + id);
+    },
   };
 })();

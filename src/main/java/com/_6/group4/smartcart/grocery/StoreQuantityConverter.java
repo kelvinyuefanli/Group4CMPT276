@@ -194,10 +194,11 @@ public final class StoreQuantityConverter {
     }
 
     private static String convertBagRoot(Double quantity) {
-        if (quantity == null) return "1 bag";
+        if (quantity == null) return "1 bag (2 lb)";
         int count = (int) Math.ceil(quantity);
-        if (count <= 8) return "1 bag";
-        return (int) Math.ceil(count / 8.0) + " bags";
+        if (count <= 8) return "1 bag (2 lb)";
+        int bags = (int) Math.ceil(count / 8.0);
+        return bags + " bags (2 lb each)";
     }
 
     private static String convertDryGood(String name, Double quantity, String unit) {
