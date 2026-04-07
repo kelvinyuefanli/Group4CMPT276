@@ -1439,11 +1439,6 @@ function bindGroceryControls(container) {
     });
   });
 
-  var instacartButton = container.querySelector("#btn-instacart");
-  if (instacartButton) {
-    instacartButton.addEventListener("click", handleInstacartCheckout);
-  }
-
   bindSwapButtons(container);
 
   var copyGroceryBtn = container.querySelector("#btn-copy-grocery");
@@ -1493,11 +1488,6 @@ function bindGroceryControls(container) {
   }
 }
 
-function handleInstacartCheckout(event) {
-  if (event) {
-    event.preventDefault();
-  }
-}
 
 function bindSwapButtons(container) {
   container.querySelectorAll(".grocery-swap-btn").forEach(function (btn) {
