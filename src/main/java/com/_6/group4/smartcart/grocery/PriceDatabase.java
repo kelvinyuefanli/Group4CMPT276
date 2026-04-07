@@ -272,7 +272,11 @@ public final class PriceDatabase {
         // Price is per each
         if (perUnit.equals("each")) {
             if (unit.equals("cup") || unit.equals("cups")) {
-                return qty * 0.75; // 1 cup chopped ≈ 0.75 of a whole piece
+                // Different items yield different cups per whole piece
+                if (name.contains("squash") || name.contains("butternut")) return qty / 4.0; // 1 squash ≈ 4 cups
+                if (name.contains("eggplant")) return qty / 3.0;
+                if (name.contains("avocado")) return qty / 1.5;
+                return qty * 0.5; // most veggies: 1 cup chopped ≈ 0.5 of a whole piece
             }
             // Cloves of garlic: ~10 cloves per head
             if (unit.equals("clove") || unit.equals("cloves")) {
