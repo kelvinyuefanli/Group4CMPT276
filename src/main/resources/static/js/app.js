@@ -147,6 +147,7 @@ var state = {
   checkedItems: {},
   groceryItemIndex: {},
   servingSize: 2,
+  adjustedServings: null, // tracks user-adjusted servings for the current recipe
   selectedDiets: {},
   selectedCuisines: {},
   selectedProteins: {},
@@ -791,6 +792,7 @@ function doSwap(slots) {
 
 function selectMeal(day, type, name, recipeId) {
   state.selectedMeal = { day: day, type: type, name: name, recipeId: recipeId };
+  state.adjustedServings = null; // reset so it defaults to the recipe's base servings
 
   $$(".meal-cell").forEach(function (c) {
     if (
@@ -872,6 +874,10 @@ function renderRecipeDetail(recipe) {
     esc(recipe.title) +
     "</h2>";
 
+  var baseServings = recipe.servings || 1;
+  var currentServings = state.adjustedServings || baseServings;
+  state.adjustedServings = currentServings;
+
   var metaParts = [];
   if (recipe.servings) metaParts.push("Serves " + recipe.servings);
   if (recipe.cookTimeMinutes)
@@ -888,6 +894,21 @@ function renderRecipeDetail(recipe) {
       "</div>";
   }
 
+  // Serving adjuster
+  html += '<div class="serving-adjuster">';
+  html += '<span class="section-label">Serves:</span>';
+  html +=
+    '<button class="serving-btn" id="btn-serving-minus" ' +
+    (currentServings <= 1 ? "disabled" : "") +
+    ">&minus;</button>";
+  html += '<span class="serving-count" id="serving-count">' + currentServings + "</span>";
+  html +=
+    '<button class="serving-btn" id="btn-serving-plus" ' +
+    (currentServings >= 8 ? "disabled" : "") +
+    ">&plus;</button>";
+  html += '<span class="text-sm text-muted">(per serving)</span>';
+  html += "</div>";
+
   // Nutrition bar
   if (recipe.nutrition && recipe.nutrition.totalCalories > 0) {
     var n = recipe.nutrition;
@@ -900,12 +921,16 @@ function renderRecipeDetail(recipe) {
   }
 
   if (recipe.ingredients && recipe.ingredients.length) {
+    var ratio = currentServings / baseServings;
     html += '<div class="mb-8">';
     html += '<h3 class="section-label mb-3">Ingredients</h3>';
-    html += '<ul class="ingredient-list">';
+    html += '<ul class="ingredient-list" id="ingredient-list">';
     recipe.ingredients.forEach(function (ing) {
       var text = "";
-      if (ing.quantity != null) text += ing.quantity + " ";
+      if (ing.quantity != null) {
+        var adjusted = Math.round(ing.quantity * ratio * 10) / 10;
+        text += adjusted + " ";
+      }
       if (ing.unit != null) text += ing.unit + " ";
       text += ing.name;
       html +=
@@ -978,6 +1003,25 @@ function renderRecipeDetail(recipe) {
       } else {
         fallbackCopy(text);
         showCopied();
+      }
+    });
+  }
+
+  var minusBtn = document.getElementById("btn-serving-minus");
+  var plusBtn = document.getElementById("btn-serving-plus");
+  if (minusBtn) {
+    minusBtn.addEventListener("click", function () {
+      if (state.adjustedServings > 1) {
+        state.adjustedServings--;
+        renderRecipeDetail(recipe);
+      }
+    });
+  }
+  if (plusBtn) {
+    plusBtn.addEventListener("click", function () {
+      if (state.adjustedServings < 8) {
+        state.adjustedServings++;
+        renderRecipeDetail(recipe);
       }
     });
   }
